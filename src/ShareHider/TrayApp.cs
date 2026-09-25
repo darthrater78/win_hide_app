@@ -85,6 +85,8 @@ internal sealed class TrayApp : ApplicationContext
             new ToolStripMenuItem("Open log &folder", null, (_, _) => OpenLogFolder()),
             new ToolStripSeparator(),
             new ToolStripMenuItem($"ShareHider {AppInfo.Version}") { Enabled = false },
+            new ToolStripMenuItem("&GitHub project page", null, (_, _) => OpenUrl(AppInfo.RepositoryUrl)),
+            new ToolStripMenuItem("&Release notes", null, (_, _) => OpenUrl(AppInfo.ReleaseNotesUrl)),
             new ToolStripMenuItem("E&xit", null, (_, _) => ExitThread()),
         ]);
         return menu;
@@ -276,6 +278,19 @@ internal sealed class TrayApp : ApplicationContext
         Directory.CreateDirectory(Log.Directory);
         // UseShellExecute on a directory path opens it in Explorer; the path is our own, not user input.
         Process.Start(new ProcessStartInfo(Log.Directory) { UseShellExecute = true })?.Dispose();
+    }
+
+    /// <summary>Opens one of our own fixed https URLs in the default browser. Never called with user input.</summary>
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            Log.Write($"could not open {url}: {ex.Message}");
+        }
     }
 
     private void InstallEventHooks()

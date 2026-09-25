@@ -7,7 +7,11 @@ ShareHider is a small tray app. It notices when you start sharing your screen an
 removes the taskbar buttons of the apps you picked. When the share ends, it puts them
 back. It can also minimize those apps while you share, and restore them afterwards.
 
-> **Repository and release notes:** links will be added once the project has a GitHub home.
+[![CI](https://github.com/darthrater78/win_hide_app/actions/workflows/ci.yml/badge.svg)](https://github.com/darthrater78/win_hide_app/actions/workflows/ci.yml)
+
+**[GitHub repository](https://github.com/darthrater78/win_hide_app)** ·
+**[Latest release and release notes](https://github.com/darthrater78/win_hide_app/releases/latest)** ·
+[Changelog](CHANGELOG.md)
 
 ## How it works
 
@@ -45,8 +49,9 @@ back. It can also minimize those apps while you share, and restore them afterwar
 
 ## Install
 
-1. Download `ShareHider-<version>-win-x64.exe`. It is self-contained, so you don't
-   need to install .NET.
+1. Download `ShareHider-<version>-win-x64.exe` from the
+   [latest release](https://github.com/darthrater78/win_hide_app/releases/latest).
+   It is self-contained, so you don't need to install .NET.
 2. Check it against the matching `.sha256` file:
    `Get-FileHash .\ShareHider-<version>-win-x64.exe -Algorithm SHA256`
 3. Run it. It sits in the tray and needs no admin rights.
