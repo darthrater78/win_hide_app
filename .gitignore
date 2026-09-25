@@ -1,0 +1,6 @@
+.claude/dev-skills-gates.md
+bin/
+obj/
+dist/
+*.user
+.vs/
