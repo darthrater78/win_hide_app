@@ -12,7 +12,9 @@
     <Product>ShareHider</Product>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+  <!-- Unconditional, not publish-only: restore must see the same package graph
+       for build and publish, or packages.lock.json breaks locked-mode restore. -->
+  <PropertyGroup>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
