@@ -17,4 +17,7 @@ All notable changes to this project are documented here. The format follows
   to hide or show by hand.
 - Settings window: pick apps by exe name or from the running apps, and set the
   minimize option and the hotkey.
-- A diagnostics option that writes the visible-window list to the log.
+- A diagnostics option that saves the visible-window list to `window-list.txt`.
+- Tray menu links to the GitHub project page and the latest release notes.
+- CI: a Windows build check that uploads a test exe for every push, tag-triggered
+  releases (including pre-releases from feature branches), and workflow linting.

@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Nothing is built or published until this job proves two things about the tagged
+  # commit: that it is on the default branch (pre-release tags excepted), and that
+  # CI passed on it. The release job then skips the tests CI already ran.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify tag is on default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            *-dev.*|*-alpha.*|*-beta.*|*-rc.*) echo "Pre-release tag, skipping branch check."; exit 0 ;;
+          esac
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::Tag $TAG is not on $DEFAULT_BRANCH. Releases come from the default branch only."
+            echo "Use a pre-release tag (e.g. v1.0.0-dev.1) for feature-branch builds." >&2
+            exit 1
+          fi
+
+      - name: Require a passing CI run for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 1800 ))
+          while true; do
+            runs=$(gh api \
+              "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=100" \
+              --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.html_url)"')
+
+            if [ -z "$runs" ]; then
+              echo "::error::CI has never run for ${SHA}, so nothing has tested this commit."
+              echo "Push the branch so CI runs on it, or dispatch it by hand" >&2
+              echo "(Actions -> CI -> Run workflow), then re-tag." >&2
+              exit 1
+            fi
+
+            if printf '%s\n' "$runs" | awk '$2 == "success" { hit = 1 } END { exit !hit }'; then
+              echo "CI passed for ${SHA}."
+              exit 0
+            fi
+
+            unfinished=$(printf '%s\n' "$runs" | awk '$1 != "completed"' | wc -l)
+            if [ "$unfinished" -eq 0 ]; then
+              echo "::error::CI ran for ${SHA} and did not pass. Refusing to release."
+              printf '%s\n' "$runs" | sed 's/^/  /' >&2
+              exit 1
+            fi
+
+            echo "CI is still running for ${SHA} (${unfinished} unfinished), waiting."
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for CI on ${SHA} to finish."
+              exit 1
+            fi
+            sleep 20
+          done
+
+  release:
+    needs: gate
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      TAG: ${{ github.ref_name }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # v1.2.3 must sit on a commit declaring 1.2.3; v1.2.3-dev.4 on one declaring 1.2.3.
+      - name: Verify tag matches the version in the tagged commit
+        run: |
+          set -euo pipefail
+          declared="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)"
+          if [ -z "$declared" ]; then
+            echo "::error::No <Version> in Directory.Build.props. Refusing to publish."
+            exit 1
+          fi
+          version="${TAG#v}"
+          if [ "${version%%-*}" != "$declared" ]; then
+            echo "::error::Tag $TAG is on a commit that declares $declared. Bump the version (or fix the tag) and re-tag."
+            exit 1
+          fi
+
+      - name: Setup .NET (version from global.json)
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      # Tests already passed on this commit (gate job); package validates the version string.
+      - name: Publish exe
+        run: bash scripts/build.sh package "${TAG#v}"
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          section="${version%%-*}"
+          prerelease=false
+          case "$TAG" in *-dev.*|*-alpha.*|*-beta.*|*-rc.*) prerelease=true ;; esac
+          notes() {
+            awk -v v="$1" '
+              index($0, "## [" v "]") == 1 { flag = 1; next }
+              flag && /^## \[/ { exit }
+              flag { print }
+            ' CHANGELOG.md
+          }
+          notes "$section" > release-notes.md
+          if [ ! -s release-notes.md ] && [ "$prerelease" = true ]; then
+            {
+              echo "Pre-release build of commit ${GITHUB_SHA}, for testing only."
+              echo
+              notes "Unreleased"
+            } > release-notes.md
+          fi
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## [$section]' section. Refusing to publish without release notes."
+            exit 1
+          fi
+
+      # Unsigned for now (security finding M1): SmartScreen will warn on first run.
+      - name: Create GitHub release with exe and checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          exe="dist/ShareHider-${TAG#v}-win-x64.exe"
+          prerelease_flag=()
+          case "$TAG" in *-dev.*|*-alpha.*|*-beta.*|*-rc.*) prerelease_flag=(--prerelease) ;; esac
+          gh release create "$TAG" "$exe" "$exe.sha256" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            "${prerelease_flag[@]}"
+
+      - name: Verify release has the exe and checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "Assets: $assets"
+          for want in "ShareHider-${TAG#v}-win-x64.exe" "ShareHider-${TAG#v}-win-x64.exe.sha256"; do
+            if ! printf '%s\n' "$assets" | grep -qxF "$want"; then
+              echo "::error::Release is missing $want."
+              exit 1
+            fi
+          done

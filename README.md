@@ -145,3 +145,16 @@ scripts/build.sh publish   # ...and produce dist/ShareHider-<version>-win-x64.ex
 | `src/ShareHider.Core` | Platform-neutral logic: settings, hotkey parsing, share signatures, hide state |
 | `src/ShareHider` | The Windows tray app: Win32 interop, taskbar control, UI |
 | `tests/ShareHider.Core.Tests` | xUnit tests for the core, which run on any OS |
+
+### CI and releases
+
+| Workflow | When it runs | What it does |
+|---|---|---|
+| `ci.yml` | Every branch push and PR (not Markdown-only changes), or by hand | Runs `scripts/build.sh publish` on Windows and uploads the test exe as a build artifact (kept 14 days) |
+| `release.yml` | A `v*` tag | Checks that the tag is on the default branch and that CI passed on that commit, publishes the exe with `scripts/build.sh package`, and creates a GitHub release with the exe, its `.sha256` and notes from `CHANGELOG.md` |
+| `lint-workflows.yml` | Changes under `.github/workflows/` | Runs actionlint, with shellcheck over the `run:` blocks |
+
+Pre-release tags (`v0.2.0-dev.1`, `-alpha.N`, `-beta.N`, `-rc.N`) can be pushed from
+any branch. They create a GitHub pre-release with a test exe, and their release
+notes come from the changelog's `[Unreleased]` section. Final tags must be on the
+default branch and match `<Version>` in `Directory.Build.props`.
