@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShareHider.Core/ShareHider.Core.csproj" />
+    <Project Path="src/ShareHider/ShareHider.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ShareHider.Core.Tests/ShareHider.Core.Tests.csproj" />
+  </Folder>
+</Solution>
