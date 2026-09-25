@@ -260,3 +260,101 @@ public class AppSettingsTests : IDisposable
         Assert.Equal(AppSettings.MaxHiddenApps, settings.HiddenApps.Count);
     }
 }
+
+public class HideSelectionTests
+{
+    [Fact]
+    public void Auto_hide_apps_hide_only_while_sharing()
+    {
+        var selection = new HideSelection(["outlook.exe"]);
+        Assert.False(selection.IsHidden("outlook.exe", shareHiding: false));
+        Assert.True(selection.IsHidden("outlook.exe", shareHiding: true));
+        Assert.False(selection.IsHidden("spotify.exe", shareHiding: true));
+        Assert.Equal(["outlook.exe"], selection.HiddenApps(shareHiding: true));
+        Assert.Empty(selection.HiddenApps(shareHiding: false));
+    }
+
+    [Fact]
+    public void Click_hides_any_app_on_demand_and_again_shows_it()
+    {
+        var selection = new HideSelection([]);
+        selection.Toggle("spotify.exe", shareHiding: false);
+        Assert.True(selection.IsHidden("spotify.exe", shareHiding: false));
+        Assert.True(selection.IsHidden("spotify.exe", shareHiding: true));
+
+        selection.Toggle("spotify.exe", shareHiding: false);
+        Assert.False(selection.IsHidden("spotify.exe", shareHiding: false));
+        Assert.False(selection.HasOverride("spotify.exe"));
+    }
+
+    [Fact]
+    public void Click_during_share_shows_an_auto_hidden_app_until_the_share_ends()
+    {
+        var selection = new HideSelection(["outlook.exe"]);
+        selection.Toggle("outlook.exe", shareHiding: true);
+        Assert.False(selection.IsHidden("outlook.exe", shareHiding: true));
+        Assert.DoesNotContain("outlook.exe", selection.HiddenApps(shareHiding: true));
+
+        selection.ShareEnded();
+        Assert.False(selection.HasOverride("outlook.exe"));
+        Assert.True(selection.IsHidden("outlook.exe", shareHiding: true)); // next share hides it again
+    }
+
+    [Fact]
+    public void Hide_overrides_survive_the_end_of_a_share()
+    {
+        var selection = new HideSelection([]);
+        selection.Toggle("spotify.exe", shareHiding: true);
+        selection.ShareEnded();
+        Assert.True(selection.IsHidden("spotify.exe", shareHiding: false));
+    }
+
+    [Fact]
+    public void Override_equal_to_default_is_dropped()
+    {
+        var selection = new HideSelection(["outlook.exe"]);
+        selection.Toggle("outlook.exe", shareHiding: false); // hide now (default: shown)
+        Assert.True(selection.HasOverride("outlook.exe"));
+        Assert.True(selection.IsHidden("outlook.exe", shareHiding: true));
+
+        selection.Toggle("outlook.exe", shareHiding: true); // show; default while sharing is hidden
+        Assert.False(selection.IsHidden("outlook.exe", shareHiding: true));
+        selection.Toggle("outlook.exe", shareHiding: true); // back to hidden == default
+        Assert.False(selection.HasOverride("outlook.exe"));
+    }
+
+    [Fact]
+    public void Auto_hide_list_can_be_edited_and_overrides_cleared()
+    {
+        var selection = new HideSelection([]);
+        selection.SetAutoHide("slack.exe", true);
+        Assert.True(selection.IsAutoHide("slack.exe"));
+        selection.Toggle("zoom.exe", shareHiding: false);
+        Assert.True(selection.HasAnyOverride);
+
+        selection.ClearOverrides();
+        selection.SetAutoHide("slack.exe", false);
+        Assert.False(selection.HasAnyOverride);
+        Assert.Empty(selection.HiddenApps(shareHiding: true));
+    }
+}
+
+public class AppOrderTests
+{
+    [Fact]
+    public void Existing_apps_keep_their_place_and_new_ones_append()
+    {
+        var order = new AppOrder();
+        Assert.Equal(["b.exe", "c.exe"], order.Update(["c.exe", "b.exe"]));
+        Assert.Equal(["b.exe", "c.exe", "a.exe"], order.Update(["a.exe", "c.exe", "b.exe"]));
+    }
+
+    [Fact]
+    public void Closed_apps_are_dropped_and_come_back_at_the_end()
+    {
+        var order = new AppOrder();
+        order.Update(["a.exe", "b.exe", "c.exe"]);
+        Assert.Equal(["a.exe", "c.exe"], order.Update(["a.exe", "c.exe"]));
+        Assert.Equal(["a.exe", "c.exe", "b.exe"], order.Update(["b.exe", "a.exe", "c.exe"]));
+    }
+}

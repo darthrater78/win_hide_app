@@ -1,0 +1,449 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Windows.Threading;
+using ShareHider.Core;
+
+namespace ShareHider;
+
+/// <summary>
+/// The app's engine and the main window's view model. Once a second it polls for a
+/// share window, works out which apps should be hidden, applies that to the real
+/// taskbar, and refreshes the mockup. While anything is hidden, window events trigger
+/// an immediate re-hide so a new window never sits on the taskbar for a second.
+/// </summary>
+internal sealed class Controller : INotifyPropertyChanged, IDisposable
+{
+    private const int SharingEndsAfterPolls = 3;
+
+    private static readonly string SettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ShareHider", "settings.json");
+
+    private readonly HideState _share = new(SharingEndsAfterPolls);
+    private readonly HideSelection _selection;
+    private readonly AppOrder _order = new();
+    private readonly TaskbarController _taskbar = new();
+    private readonly HotkeyWindow _hotkey = new();
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+    private readonly List<nint> _eventHooks = [];
+
+    // Kept in a field: the native hook holds only a function pointer, so the
+    // delegate must not be garbage-collected while a hook is installed.
+    private readonly Native.WinEventProc _winEventProc;
+
+    private AppSettings _settings;
+    private bool _wasShareHiding;
+    private string? _shareName;
+    private bool _refreshPending;
+    private bool _disposed;
+
+    public Controller()
+    {
+        _winEventProc = OnWinEvent;
+        _settings = AppSettings.Load(SettingsPath, out var loadError);
+        if (loadError is not null)
+        {
+            Log.Write(loadError);
+        }
+
+        _selection = new HideSelection(_settings.HiddenApps);
+        _share.AutoDetect = _settings.AutoDetect;
+        _hotkey.Pressed += (_, _) => ToggleShareHiding();
+        _timer.Tick += (_, _) => Refresh(pollForShare: true);
+        HotkeyError = RegisterHotkey();
+        SyncAutoHideList();
+        Refresh(pollForShare: true);
+        _timer.Start();
+        Log.Write($"started {AppInfo.Version}; {_settings.HiddenApps.Count} app(s) on the auto-hide list");
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Running apps, in taskbar-mockup order.</summary>
+    public ObservableCollection<AppButton> Apps { get; } = [];
+
+    /// <summary>Every app on the auto-hide list, running or not, sorted by name.</summary>
+    public ObservableCollection<string> AutoHideList { get; } = [];
+
+    public string StatusTitle { get; private set => Set(ref field, value); } = "";
+
+    public string StatusDetail { get; private set => Set(ref field, value); } = "";
+
+    public bool IsHidingAny { get; private set => Set(ref field, value); }
+
+    /// <summary>The auto-hide list is being applied (sharing detected, or the hotkey).</summary>
+    public bool IsShareHiding { get; private set => Set(ref field, value); }
+
+    /// <summary>Something overrides automatic behavior: the hotkey, or clicks in the mockup.</summary>
+    public bool HasOverrides { get; private set => Set(ref field, value); }
+
+    public string HotkeyText => _settings.Hotkey;
+
+    public string? HotkeyError { get; private set => Set(ref field, value); }
+
+    public bool AutoDetect
+    {
+        get => _settings.AutoDetect;
+        set
+        {
+            _settings.AutoDetect = value;
+            _share.AutoDetect = value;
+            SaveAndRefresh();
+        }
+    }
+
+    public bool MinimizeWindows
+    {
+        get => _settings.MinimizeWindows;
+        set
+        {
+            _settings.MinimizeWindows = value;
+            SaveAndRefresh();
+        }
+    }
+
+    public bool StartWithWindows
+    {
+        get => StartupRegistration.IsEnabled;
+        set
+        {
+            try
+            {
+                StartupRegistration.Set(value);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+            {
+                Log.Write($"could not change start-with-Windows: {ex.Message}");
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>The mockup's click: hide or show one app's taskbar button right now.</summary>
+    public void ToggleApp(string exe)
+    {
+        _selection.Toggle(exe, _share.ShouldHide);
+        Log.Write($"{exe}: {(_selection.IsHidden(exe, _share.ShouldHide) ? "hidden" : "shown")} on demand");
+        Refresh(pollForShare: false);
+    }
+
+    public void SetAutoHide(string exe, bool autoHide)
+    {
+        _selection.SetAutoHide(exe, autoHide);
+        SyncAutoHideList();
+        SaveAndRefresh();
+    }
+
+    /// <summary>Adds a typed exe name to the auto-hide list. Returns false when it isn't a valid exe name.</summary>
+    public bool AddAutoHide(string input)
+    {
+        if (!ExeName.TryNormalize(input, out var exe) || _selection.AutoHide.Count >= AppSettings.MaxHiddenApps)
+        {
+            return false;
+        }
+
+        SetAutoHide(exe, true);
+        return true;
+    }
+
+    /// <summary>The hotkey: apply or lift the auto-hide list now, whatever detection says.</summary>
+    public void ToggleShareHiding()
+    {
+        _share.Toggle();
+        Log.Write($"hotkey: auto-hide list {(_share.ShouldHide ? "applied" : "lifted")}");
+        Refresh(pollForShare: false);
+    }
+
+    /// <summary>Drops the hotkey override and every click override: back to fully automatic.</summary>
+    public void ResumeAutomatic()
+    {
+        _share.ClearOverride();
+        _selection.ClearOverrides();
+        Refresh(pollForShare: false);
+    }
+
+    /// <summary>Validates, registers and saves a new hotkey. Returns an error message, or null.</summary>
+    public string? ApplyHotkey(string text)
+    {
+        if (!Hotkey.TryParse(text, out var hotkey))
+        {
+            return "Use Ctrl, Alt or Win plus a letter, digit or F1–F24, e.g. Ctrl+Alt+H.";
+        }
+
+        _settings.Hotkey = hotkey.ToString();
+        HotkeyError = RegisterHotkey();
+        Save();
+        OnPropertyChanged(nameof(HotkeyText));
+        return HotkeyError;
+    }
+
+    /// <summary>
+    /// Saves every visible window to window-list.txt, so users can write a detection
+    /// signature for a meeting app we don't recognize. Titles can be private (document
+    /// names, email subjects), so they go to a separate file that is overwritten each
+    /// time, never into the rolling log.
+    /// </summary>
+    public static void WriteWindowList()
+    {
+        var lines = WindowEnumerator.VisibleWindows()
+            .Select(w => $"{w.ProcessName} | {w.ClassName} | {w.Title}")
+            .Prepend("process | class | title");
+        try
+        {
+            Directory.CreateDirectory(Log.Directory);
+            File.WriteAllLines(Log.WindowListPath, lines);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Write($"could not write window list: {ex.Message}");
+        }
+
+        OpenLogFolder();
+    }
+
+    public static void OpenLogFolder()
+    {
+        Directory.CreateDirectory(Log.Directory);
+        Open(Log.Directory);
+    }
+
+    /// <summary>Opens one of our own fixed locations (log folder, https links). Never called with user input.</summary>
+    public static void Open(string target)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Write($"could not open {target}: {ex.Message}");
+        }
+    }
+
+    private void Refresh(bool pollForShare)
+    {
+        var windows = WindowEnumerator.VisibleWindows();
+        if (pollForShare && _settings.AutoDetect)
+        {
+            var share = FindShareWindow(windows);
+            var changed = _share.ReportPoll(share is not null);
+
+            // Keep the last name through the few polls it takes to decide the share has ended.
+            _shareName = share ?? (_share.SharingDetected ? _shareName : null);
+            if (changed)
+            {
+                Log.Write(_share.SharingDetected ? $"sharing detected ({_shareName})" : "sharing ended");
+            }
+        }
+
+        var shareHiding = _share.ShouldHide;
+        if (_wasShareHiding && !shareHiding)
+        {
+            _selection.ShareEnded();
+        }
+
+        _wasShareHiding = shareHiding;
+        var hidden = _selection.HiddenApps(shareHiding);
+        ApplyToTaskbar(windows, hidden);
+        UpdateApps(windows, hidden);
+        UpdateStatus(hidden.Count);
+    }
+
+    private void ApplyToTaskbar(List<WindowInfo> windows, HashSet<string> hidden)
+    {
+        _taskbar.RestoreAppsNotIn(hidden);
+        _taskbar.Hide(
+            windows.Where(w => hidden.Contains(w.ProcessName) && WindowEnumerator.HasTaskbarButton(w)),
+            _settings.MinimizeWindows);
+
+        if (hidden.Count > 0 && _eventHooks.Count == 0)
+        {
+            InstallEventHooks();
+        }
+        else if (hidden.Count == 0 && _eventHooks.Count > 0)
+        {
+            RemoveEventHooks();
+        }
+    }
+
+    /// <summary>Brings the mockup's buttons in line with the running apps, reusing existing buttons.</summary>
+    private void UpdateApps(List<WindowInfo> windows, HashSet<string> hidden)
+    {
+        var groups = windows.Where(WindowEnumerator.IsShownOnTaskbar)
+            .GroupBy(w => w.ProcessName)
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var order = _order.Update(groups.Keys);
+        var existing = Apps.ToDictionary(a => a.ExeName);
+
+        for (var i = 0; i < order.Count; i++)
+        {
+            var exe = order[i];
+            if (!existing.TryGetValue(exe, out var button))
+            {
+                button = new AppButton(exe);
+                Apps.Insert(i, button);
+            }
+            else if (Apps.IndexOf(button) != i)
+            {
+                Apps.Move(Apps.IndexOf(button), i);
+            }
+
+            var group = groups[exe];
+            var (icon, name) = AppIcons.For(group[0].ExePath, exe);
+            button.Update(name, icon, group.Count, hidden.Contains(exe), _selection.IsAutoHide(exe));
+        }
+
+        while (Apps.Count > order.Count)
+        {
+            Apps.RemoveAt(Apps.Count - 1);
+        }
+    }
+
+    private void UpdateStatus(int hiddenApps)
+    {
+        IsShareHiding = _share.ShouldHide;
+        IsHidingAny = hiddenApps > 0;
+        HasOverrides = _share.Override is not null || _selection.HasAnyOverride;
+
+        StatusTitle = hiddenApps switch
+        {
+            0 => _settings.AutoDetect ? "Watching for screen sharing" : "Automatic detection is off",
+            1 => "Hiding 1 app",
+            _ => $"Hiding {hiddenApps} apps",
+        };
+
+        StatusDetail = (_share.Override, _share.SharingDetected) switch
+        {
+            (true, _) => "The hotkey applied your auto-hide list.",
+            (false, true) => "Sharing detected, but the hotkey lifted your auto-hide list.",
+            (null, true) => $"Sharing detected ({_shareName ?? "share window"}). Your auto-hide list is applied.",
+            _ => "Click an app below to hide or show it now.",
+        };
+    }
+
+    /// <summary>Name of the first matching share signature, or null.</summary>
+    private string? FindShareWindow(List<WindowInfo> windows) =>
+        ShareSignature.BuiltIn.Concat(_settings.CustomSignatures)
+            .FirstOrDefault(signature => windows.Any(signature.Matches))?.Name;
+
+    private void SyncAutoHideList()
+    {
+        AutoHideList.Clear();
+        foreach (var exe in _selection.AutoHide.Order(StringComparer.Ordinal))
+        {
+            AutoHideList.Add(exe);
+        }
+    }
+
+    private void SaveAndRefresh()
+    {
+        Save();
+        OnPropertyChanged(nameof(AutoDetect));
+        OnPropertyChanged(nameof(MinimizeWindows));
+        Refresh(pollForShare: false);
+    }
+
+    private void Save()
+    {
+        _settings.HiddenApps = [.. _selection.AutoHide.Order(StringComparer.Ordinal)];
+        try
+        {
+            _settings.Save(SettingsPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Write($"could not save settings: {ex.Message}");
+        }
+    }
+
+    /// <summary>Registers the configured hotkey. Returns an error message, or null.</summary>
+    private string? RegisterHotkey()
+    {
+        var hotkey = Hotkey.TryParse(_settings.Hotkey, out var parsed) ? parsed : Hotkey.Default;
+        if (_hotkey.Register(hotkey))
+        {
+            return null;
+        }
+
+        Log.Write($"hotkey {hotkey} is already in use by another app");
+        return $"{hotkey} is already used by another app. Pick a different hotkey.";
+    }
+
+    private void InstallEventHooks()
+    {
+        foreach (var (min, max) in new[]
+                 {
+                     (Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND),
+                     (Native.EVENT_SYSTEM_MINIMIZESTART, Native.EVENT_SYSTEM_MINIMIZEEND),
+                     (Native.EVENT_OBJECT_SHOW, Native.EVENT_OBJECT_SHOW),
+                 })
+        {
+            var hook = Native.SetWinEventHook(min, max, 0, _winEventProc, 0, 0,
+                Native.WINEVENT_OUTOFCONTEXT | Native.WINEVENT_SKIPOWNPROCESS);
+            if (hook != 0)
+            {
+                _eventHooks.Add(hook);
+            }
+        }
+    }
+
+    private void RemoveEventHooks()
+    {
+        foreach (var hook in _eventHooks)
+        {
+            Native.UnhookWinEvent(hook);
+        }
+
+        _eventHooks.Clear();
+    }
+
+    /// <summary>Delivered on the UI thread (out-of-context hooks go through its message loop). Coalesces bursts into one refresh.</summary>
+    private void OnWinEvent(nint hook, uint eventType, nint hwnd, int idObject, int idChild, uint thread, uint time)
+    {
+        if (idObject != Native.OBJID_WINDOW || idChild != Native.CHILDID_SELF || _refreshPending)
+        {
+            return;
+        }
+
+        _refreshPending = true;
+        _dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+        {
+            _refreshPending = false;
+            if (!_disposed)
+            {
+                Refresh(pollForShare: false);
+            }
+        });
+    }
+
+    /// <summary>Restores every hidden button and window. Safe to call more than once.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _timer.Stop();
+        RemoveEventHooks();
+        _taskbar.Dispose();
+        _hotkey.Dispose();
+        Log.Write("exited");
+    }
+
+    private void Set<T>(ref T field, T value, [CallerMemberName] string name = "")
+    {
+        if (!EqualityComparer<T>.Default.Equals(field, value))
+        {
+            field = value;
+            OnPropertyChanged(name);
+        }
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string name = "") =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}

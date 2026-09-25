@@ -1,0 +1,292 @@
+<Window x:Class="ShareHider.MainWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ShareHider"
+        Title="ShareHider"
+        Width="800" Height="720" MinWidth="620" MinHeight="540"
+        WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/Assets/ShareHider.ico">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="20,16" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <!-- A bare button: the taskbar mockup draws its own hover and press states. -->
+        <Style x:Key="TaskbarButton" TargetType="Button">
+            <Setter Property="Width" Value="52" />
+            <Setter Property="Height" Value="52" />
+            <Setter Property="Margin" Value="2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="Transparent" CornerRadius="6"
+                                BorderBrush="Transparent" BorderThickness="1">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource FocusStrokeColorOuterBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <DataTemplate x:Key="AppButtonTemplate" DataType="{x:Type local:AppButton}">
+            <Button Style="{StaticResource TaskbarButton}" Tag="{Binding}" Click="AppButton_Click"
+                    ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding DisplayName}">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="{Binding DisplayName}" IsEnabled="False" FontWeight="SemiBold" />
+                        <Separator />
+                        <MenuItem Header="Hide or show now" Click="ToggleMenu_Click" />
+                        <!-- Not IsCheckable: a click would overwrite the one-way binding with a local value. -->
+                        <MenuItem Header="Hide automatically while sharing"
+                                  IsChecked="{Binding IsAutoHide, Mode=OneWay}" Click="AutoHideMenu_Click" />
+                    </ContextMenu>
+                </Button.ContextMenu>
+                <Grid>
+                    <Grid x:Name="IconHost" Width="28" Height="28" Margin="0,0,0,6"
+                          HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Image Source="{Binding Icon}" RenderOptions.BitmapScalingMode="HighQuality" />
+                        <Border x:Name="Fallback" CornerRadius="6" Visibility="Collapsed"
+                                Background="{DynamicResource AccentFillColorDefaultBrush}">
+                            <TextBlock Text="{Binding Initial}" Foreground="White" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+
+                    <!-- The running-app dash under each real taskbar button. -->
+                    <Border x:Name="Indicator" Width="8" Height="3" CornerRadius="1.5" Margin="0,0,0,4"
+                            HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                            Background="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                    <Border x:Name="HiddenBadge" Width="18" Height="18" CornerRadius="9" Margin="0,1,1,0"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" Visibility="Collapsed"
+                            Background="{DynamicResource SystemFillColorCriticalBrush}">
+                        <TextBlock Text="&#xED1A;" FontFamily="{StaticResource IconFont}" FontSize="10" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border x:Name="AutoBadge" Width="16" Height="16" CornerRadius="8" Margin="1,1,0,0"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed"
+                            Background="{DynamicResource AccentFillColorDefaultBrush}">
+                        <TextBlock Text="&#xE72D;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
+            </Button>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                    <Setter TargetName="Fallback" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsHidden}" Value="True">
+                    <Setter TargetName="IconHost" Property="Opacity" Value="0.3" />
+                    <Setter TargetName="Indicator" Property="Visibility" Value="Hidden" />
+                    <Setter TargetName="HiddenBadge" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsAutoHide}" Value="True">
+                    <Setter TargetName="AutoBadge" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,20,24,16">
+
+            <!-- Status -->
+            <Border Style="{StaticResource Card}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Image x:Name="StatusIcon" Width="40" Height="40" Margin="0,0,16,0" VerticalAlignment="Center">
+                        <Image.Style>
+                            <Style TargetType="Image">
+                                <Setter Property="Source" Value="pack://application:,,,/Assets/ShareHider.ico" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsHidingAny}" Value="True">
+                                        <Setter Property="Source" Value="pack://application:,,,/Assets/ShareHiderActive.ico" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Image.Style>
+                    </Image>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding StatusTitle}" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding StatusDetail}" Style="{StaticResource Caption}" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="16,0,0,0">
+                        <Button Click="ShareHiding_Click" HorizontalAlignment="Stretch" Padding="14,6">
+                            <TextBlock>
+                                <Run Text="Apply / lift auto-hide list" />
+                                <Run Text="{Binding HotkeyText, Mode=OneWay, StringFormat=' ({0})'}"
+                                     Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </TextBlock>
+                        </Button>
+                        <Button Content="Resume automatic hiding" Click="Resume_Click" Margin="0,8,0,0" Padding="14,6"
+                                HorizontalAlignment="Stretch" Style="{DynamicResource AccentButtonStyle}"
+                                Visibility="{Binding HasOverrides, Converter={StaticResource BoolToVisibility}}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Taskbar mockup -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Your taskbar" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12"
+                               Text="Every app with a taskbar button right now. Click an app to hide or show its button immediately. Right-click it to have it hidden automatically whenever you share your screen." />
+
+                    <Border CornerRadius="8" Padding="8,6" MinHeight="68" BorderThickness="1"
+                            Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                        <Grid>
+                            <ItemsControl ItemsSource="{Binding Apps}" ItemTemplate="{StaticResource AppButtonTemplate}"
+                                          HorizontalAlignment="Center" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                            <TextBlock Text="No apps with taskbar buttons are running." Style="{StaticResource Caption}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock.Visibility>
+                                    <Binding Path="Apps.Count">
+                                        <Binding.Converter>
+                                            <local:ZeroToVisibleConverter />
+                                        </Binding.Converter>
+                                    </Binding>
+                                </TextBlock.Visibility>
+                            </TextBlock>
+                        </Grid>
+                    </Border>
+
+                    <WrapPanel Margin="0,10,0,0">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,20,4">
+                            <Border Width="16" Height="16" CornerRadius="8" Background="{DynamicResource SystemFillColorCriticalBrush}">
+                                <TextBlock Text="&#xED1A;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Hidden from the taskbar now" Style="{StaticResource Caption}" Margin="6,0,0,0" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Width="16" Height="16" CornerRadius="8" Background="{DynamicResource AccentFillColorDefaultBrush}">
+                                <TextBlock Text="&#xE72D;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="White"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Hidden automatically while sharing" Style="{StaticResource Caption}" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Auto-hide list -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Hide automatically while sharing" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12"
+                               Text="These apps are hidden whenever a screen share is detected, even if they aren't running yet." />
+                    <ItemsControl ItemsSource="{Binding AutoHideList}" Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="14" Padding="12,4,4,4" Margin="0,0,8,8" BorderThickness="1"
+                                        Background="{DynamicResource ControlFillColorDefaultBrush}"
+                                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                                        <Button Tag="{Binding}" Click="RemoveAutoHide_Click" Margin="6,0,0,0" Padding="6,2"
+                                                ToolTip="Remove from the list" Background="Transparent" BorderThickness="0"
+                                                AutomationProperties.Name="Remove">
+                                            <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10" />
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBox x:Name="AddBox" Width="240" KeyDown="AddBox_KeyDown"
+                                 AutomationProperties.Name="App exe name to add" ToolTip="An exe file name, e.g. outlook.exe" />
+                        <Button Content="Add" Click="Add_Click" Margin="8,0,0,0" Padding="16,4" />
+                    </StackPanel>
+                    <TextBlock x:Name="AddError" Foreground="{DynamicResource SystemFillColorCriticalBrush}" Margin="0,6,0,0"
+                               Visibility="Collapsed" Text="Enter an exe file name such as outlook.exe (no folder path)." />
+                </StackPanel>
+            </Border>
+
+            <!-- Settings -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Settings" Style="{StaticResource SectionTitle}" Margin="0,0,0,10" />
+                    <CheckBox Content="Detect screen sharing automatically (Teams, Zoom, and browser meetings)"
+                              IsChecked="{Binding AutoDetect}" Margin="0,0,0,8" />
+                    <CheckBox Content="Also minimize apps when hiding them, and restore them afterwards"
+                              IsChecked="{Binding MinimizeWindows}" Margin="0,0,0,8" />
+                    <CheckBox Content="Start ShareHider with Windows (in the tray)"
+                              IsChecked="{Binding StartWithWindows}" Margin="0,0,0,12" />
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Hotkey" VerticalAlignment="Center" Width="60" />
+                        <TextBox x:Name="HotkeyBox" Width="160" KeyDown="HotkeyBox_KeyDown"
+                                 AutomationProperties.Name="Hotkey" ToolTip="e.g. Ctrl+Alt+H" />
+                        <Button Content="Apply" Click="ApplyHotkey_Click" Margin="8,0,0,0" Padding="16,4" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding HotkeyError}" Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                               Margin="60,6,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Footer -->
+            <TextBlock Style="{StaticResource Caption}" HorizontalAlignment="Center" Margin="0,4,0,0">
+                <Run x:Name="VersionRun" />
+                <Run Text="  ·  " />
+                <Hyperlink Click="GitHub_Click">GitHub</Hyperlink>
+                <Run Text="  ·  " />
+                <Hyperlink Click="ReleaseNotes_Click">Release notes</Hyperlink>
+                <Run Text="  ·  " />
+                <Hyperlink Click="LogFolder_Click">Log folder</Hyperlink>
+                <Run Text="  ·  " />
+                <Hyperlink Click="WindowList_Click" ToolTip="Saves every visible window to window-list.txt, for adding detection of another meeting app">Save window list</Hyperlink>
+            </TextBlock>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

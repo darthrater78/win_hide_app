@@ -9,6 +9,8 @@ internal static class Native
     public const int GWL_EXSTYLE = -20;
     public const long WS_EX_TOOLWINDOW = 0x80;
     public const long WS_EX_APPWINDOW = 0x40000;
+    public const long WS_EX_NOACTIVATE = 0x08000000;
+    public const int DWMWA_CLOAKED = 14;
     public const uint GW_OWNER = 4;
 
     public const int SW_SHOWNOACTIVATE = 4;
@@ -39,7 +41,18 @@ internal static class Native
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumChildWindows(nint parent, EnumWindowsProc callback, nint lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsWindow(nint hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(nint hwnd);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(nint hwnd, int attribute, out int value, int size);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

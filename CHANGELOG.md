@@ -8,16 +8,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Tray app that hides chosen apps' taskbar buttons while you share your screen,
-  and restores them afterwards.
+- A window with a live copy of your taskbar: click any running app to hide or show its
+  taskbar button on demand, and right-click it to hide it automatically while sharing.
+- Hides the auto-hide list's taskbar buttons while you share your screen, and restores
+  them afterwards.
+- Windows 11 look (WPF Fluent theme, follows light and dark mode), a new app and tray
+  icon, and an amber tray icon while anything is hidden.
+- Start with Windows, closing to the tray, and bringing the window back by starting the
+  exe again.
+- Every hidden app is restored if ShareHider hits an unexpected error.
 - Share detection for browser-based meetings (Chrome, Edge, Brave, Vivaldi, Opera),
   Microsoft Teams and Zoom, plus custom detection signatures in `settings.json`.
 - Optional minimizing of hidden apps during a share, restored afterwards.
 - Global hotkey (default Ctrl+Alt+H), a tray toggle, and double-clicking the tray icon
   to hide or show by hand.
-- Settings window: pick apps by exe name or from the running apps, and set the
-  minimize option and the hotkey.
+- Settings for automatic detection, minimizing, the hotkey, and adding apps to the
+  auto-hide list by exe name.
 - A diagnostics option that saves the visible-window list to `window-list.txt`.
 - Tray menu links to the GitHub project page and the latest release notes.
-- CI: a Windows build check that uploads a test exe for every push, tag-triggered
+- CI: a Windows build check with a launch smoke test that uploads a test exe and a
+  screenshot for every push, tag-triggered
   releases (including pre-releases from feature branches), and workflow linting.

@@ -3,9 +3,11 @@
 Windows 11 has no setting to keep a running app off the taskbar. That's a problem
 when you share your screen: everyone in the meeting can see every app you have open.
 
-ShareHider is a small tray app. It notices when you start sharing your screen and
-removes the taskbar buttons of the apps you picked. When the share ends, it puts them
-back. It can also minimize those apps while you share, and restore them afterwards.
+ShareHider shows you a copy of your taskbar. Click any running app in it and that
+app's button disappears from the real taskbar; click it again and the button comes
+back. You can also put apps on an **auto-hide list**: ShareHider notices when you
+start sharing your screen, hides those apps, and puts them back when the share ends.
+It can minimize hidden apps too, and restore them afterwards.
 
 [![CI](https://github.com/darthrater78/win_hide_app/actions/workflows/ci.yml/badge.svg)](https://github.com/darthrater78/win_hide_app/actions/workflows/ci.yml)
 
@@ -28,9 +30,14 @@ back. It can also minimize those apps while you share, and restore them afterwar
   taskbar API (`ITaskbarList::DeleteTab`), and put back with `AddTab`. While hiding
   is on, ShareHider re-hides immediately when one of those apps opens a new window,
   and again every second in case Explorer adds a button back.
-- **Manual control.** Press **Ctrl+Alt+H** (you can change it), double-click the tray
-  icon, or use the tray menu to hide or show right now. A manual choice holds until
-  detection sees a share start or end. After that, detection is in charge again.
+- **Hiding on demand.** Clicking an app in the taskbar mockup hides or shows it
+  straight away, whether or not you're sharing. A hide you choose this way lasts
+  until you click the app again or quit ShareHider. A show you choose during a share
+  (to let one auto-hide app stay visible) lasts until that share ends.
+- **The hotkey.** Press **Ctrl+Alt+H** (you can change it) to apply or lift the whole
+  auto-hide list right now, whatever detection says. That choice holds until
+  detection sees a share start or end. **Resume automatic hiding** drops the hotkey
+  choice and every on-demand click at once.
 
 ### Limits worth knowing
 
@@ -43,9 +50,11 @@ back. It can also minimize those apps while you share, and restore them afterwar
   [Adding detection for another app](#adding-detection-for-another-app), or use the hotkey.
 - **Apps running as administrator** can't be minimized from a normal (non-admin)
   ShareHider. Their taskbar buttons may still hide.
-- **If ShareHider is killed** (Task Manager, a crash) while apps are hidden, their
-  buttons stay hidden until you restore that app's window or restart Explorer. A
-  normal exit, logoff or shutdown always restores them.
+- **Only running apps can be hidden.** Windows 11 has no supported way to hide a
+  pinned icon for an app that isn't running, or another app's tray icon.
+- **If ShareHider is killed** (for example from Task Manager) while apps are hidden,
+  their buttons stay hidden until you restore that app's window or restart Explorer.
+  A normal exit, logoff, shutdown or unexpected error always restores them.
 
 ## Install
 
@@ -54,27 +63,34 @@ back. It can also minimize those apps while you share, and restore them afterwar
    It is self-contained, so you don't need to install .NET.
 2. Check it against the matching `.sha256` file:
    `Get-FileHash .\ShareHider-<version>-win-x64.exe -Algorithm SHA256`
-3. Run it. It sits in the tray and needs no admin rights.
-4. Optional: to start it with Windows, press Win+R, type `shell:startup`, and put a
-   shortcut to the exe in that folder.
+3. Run it. It needs no admin rights. Closing the window keeps it running in the tray.
+4. Optional: turn on **Start ShareHider with Windows** in its settings.
 
 The exe isn't code-signed yet, so SmartScreen may warn about it the first time you run it.
 
 ## Use
 
-Right-click the tray icon:
+The main window has four parts:
 
-| Menu item | What it does |
-|---|---|
-| Hide apps now | Hide or show right now (same as the hotkey or double-clicking the icon) |
-| Auto-detect screen sharing | Turn automatic detection on or off |
-| Resume automatic detection | Drop a manual choice and let detection decide |
-| Settings… | Pick apps to hide, the minimize option and the hotkey |
-| Write window list | Save every visible window to `window-list.txt`, for adding detection (below) |
-| Open log folder | Open `%LOCALAPPDATA%\ShareHider` |
+- **Status**: what's hidden and why, plus the **Apply / lift auto-hide list**
+  button (same as the hotkey) and **Resume automatic hiding**.
+- **Your taskbar**: every app with a taskbar button right now, grouped per app the
+  way Windows groups them, with its real icon.
+  - **Click** an app to hide or show its button immediately. A hidden app is faded
+    and gets a red badge.
+  - **Right-click** it to add or remove it from the auto-hide list. Apps on the list
+    get a blue badge.
+- **Hide automatically while sharing**: the auto-hide list, including apps that
+  aren't running. Add one by exe name (for example `outlook.exe`) or remove one with ×.
+- **Settings**: automatic share detection, minimizing hidden apps, starting with
+  Windows, and the hotkey.
 
-In **Settings**, add apps by exe name (for example `outlook.exe`) or pick one from the
-list of running apps.
+The footer links to this repository, the release notes, the log folder and
+**Save window list** (see [Adding detection for another app](#adding-detection-for-another-app)).
+
+Closing the window keeps ShareHider running in the tray. Click the tray icon to open
+the window again, or right-click it for quick controls and **Exit**. Starting the exe a
+second time also brings the window back. The tray icon turns amber while any app is hidden.
 
 ShareHider never shows a pop-up notification when sharing starts or stops, because
 that pop-up would appear on the screen you're sharing.
@@ -93,13 +109,16 @@ Settings live in `%APPDATA%\ShareHider\settings.json`:
 }
 ```
 
+`HiddenApps` is the auto-hide list. On-demand hides from the taskbar mockup aren't
+saved, so they end when ShareHider exits.
+
 If the file is malformed or larger than 256 KB, ShareHider ignores it, uses the
 defaults, and writes a note to the log. Invalid entries are dropped when the file loads.
 
 ### Adding detection for another app
 
 1. Start a screen share in the app.
-2. From the tray menu, choose **Write window list**. The log folder opens.
+2. In ShareHider's window, click **Save window list** in the footer. The log folder opens.
 3. In `window-list.txt`, find the window that appeared for the share. Each line reads
    `process | class | title`.
 4. Add an entry to `CustomSignatures`, then restart ShareHider:
@@ -124,9 +143,14 @@ substring) and/or a `ClassName` (an exact match).
   - `log.txt`: app start and stop, the processes whose windows were hidden, and
     detection events. It never contains window titles, and it is capped at about
     2 MB (the current log plus one rotated file).
-  - `window-list.txt`: written only when you choose **Write window list**, and
+  - `window-list.txt`: written only when you click **Save window list**, and
     overwritten each time. It holds window titles, which can include document
     names or email subjects. Delete it whenever you like.
+  - **Start with Windows** writes one value, `ShareHider`, under
+    `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Turning the setting off
+    deletes it.
+- **What it reads from other apps:** window titles, class names, and each app's exe
+  path. It reads the path only to show that app's icon and product name.
 - **What it changes in other apps:** it removes and restores their taskbar buttons,
   and minimizes and restores their windows. It doesn't inject code into them or
   change their window styles.
@@ -140,17 +164,21 @@ scripts/build.sh           # locked restore (with NuGet vulnerability audit), bu
 scripts/build.sh publish   # ...and produce dist/ShareHider-<version>-win-x64.exe + .sha256
 ```
 
+On Windows, `pwsh scripts/smoke-test.ps1 -Exe dist/ShareHider-<version>-win-x64.exe`
+launches the exe, checks that it starts, and saves a screenshot. The app icons are
+generated by `python3 scripts/make_icons.py`, which needs only the standard library.
+
 | Project | Purpose |
 |---|---|
-| `src/ShareHider.Core` | Platform-neutral logic: settings, hotkey parsing, share signatures, hide state |
-| `src/ShareHider` | The Windows tray app: Win32 interop, taskbar control, UI |
+| `src/ShareHider.Core` | Platform-neutral logic: settings, hotkey parsing, share signatures, which apps to hide, button order |
+| `src/ShareHider` | The Windows app: Win32 interop, taskbar control, the WPF window (Windows 11 Fluent theme) and the tray icon |
 | `tests/ShareHider.Core.Tests` | xUnit tests for the core, which run on any OS |
 
 ### CI and releases
 
 | Workflow | When it runs | What it does |
 |---|---|---|
-| `ci.yml` | Every branch push and PR (not Markdown-only changes), or by hand | Runs `scripts/build.sh publish` on Windows and uploads the test exe as a build artifact (kept 14 days) |
+| `ci.yml` | Every branch push and PR (not Markdown-only changes), or by hand | Runs `scripts/build.sh publish` on Windows, then the smoke test, and uploads the test exe and a screenshot as build artifacts (kept 14 days) |
 | `release.yml` | A `v*` tag | Checks that the tag is on the default branch and that CI passed on that commit, publishes the exe with `scripts/build.sh package`, and creates a GitHub release with the exe, its `.sha256` and notes from `CHANGELOG.md` |
 | `lint-workflows.yml` | Changes under `.github/workflows/` | Runs actionlint, with shellcheck over the `run:` blocks |
 

@@ -1,3 +1,4 @@
+using System.Windows.Forms;
 using ShareHider.Core;
 
 namespace ShareHider;

@@ -3,13 +3,17 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Only for NotifyIcon (WPF has no tray icon) and the hotkey's NativeWindow. -->
     <UseWindowsForms>true</UseWindowsForms>
     <!-- Lets the Windows-only project build from Linux; the exe still only runs on Windows. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationIcon>Assets\ShareHider.ico</ApplicationIcon>
     <AssemblyTitle>ShareHider</AssemblyTitle>
     <Product>ShareHider</Product>
+    <!-- WPF0001: the Fluent ThemeMode API is marked experimental; it is the supported way to get the Windows 11 look. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
   </PropertyGroup>
 
   <!-- Unconditional, not publish-only: restore must see the same package graph
@@ -21,6 +25,19 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <DebugType>none</DebugType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms' implicit usings would clash with WPF's Application, Button, etc. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <!-- WPF leaves System.IO out (Path clashes with System.Windows.Shapes.Path, which we don't use). -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\*.ico" />
+    <EmbeddedResource Include="Assets\*.ico" LogicalName="ShareHider.Assets.%(Filename)%(Extension)" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ShareHider.Core\ShareHider.Core.csproj" />
