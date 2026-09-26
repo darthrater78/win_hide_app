@@ -89,6 +89,31 @@ public class ShareSignatureTests
     }
 
     [Fact]
+    public void Builtin_meetings_are_valid() => Assert.All(ShareSignature.BuiltInMeetings, s => Assert.True(s.IsValid, s.Name));
+
+    // Class names from a real Zoom share (window list saved during the share).
+    [Fact]
+    public void Zoom_share_toolbar_matches()
+    {
+        var window = Window("zoom.exe", "Screen sharing meeting controls", "ZPFloatToolbarClass");
+        Assert.Contains(ShareSignature.BuiltIn, s => s.Matches(window));
+    }
+
+    [Theory]
+    [InlineData("Zoom Workplace", "ZPPTMainFrmWndClassEx")]
+    [InlineData("Zoom Meeting", "ZPContentViewWndClass")]
+    [InlineData("Annotation - Zoom", "ZoomAnnoWindowWndClass")]
+    public void Other_zoom_windows_are_not_a_share(string title, string className) =>
+        Assert.DoesNotContain(ShareSignature.BuiltIn, s => s.Matches(Window("zoom.exe", title, className)));
+
+    [Fact]
+    public void Zoom_meeting_window_is_a_meeting()
+    {
+        Assert.Contains(ShareSignature.BuiltInMeetings, s => s.Matches(Window("zoom.exe", "Zoom Meeting", "ZPContentViewWndClass")));
+        Assert.DoesNotContain(ShareSignature.BuiltInMeetings, s => s.Matches(Window("zoom.exe", "Zoom Workplace", "ZPPTMainFrmWndClassEx")));
+    }
+
+    [Fact]
     public void Class_name_is_exact()
     {
         var signature = new ShareSignature { ProcessNames = ["slack.exe"], ClassName = "HuddleBar" };
@@ -239,6 +264,10 @@ public class AppSettingsTests : IDisposable
                 { "Name": "matches everything", "ProcessNames": ["slack.exe"] },
                 { "Name": "no process", "ProcessNames": [], "TitleContains": "x" },
               ],
+              "CustomMeetingSignatures": [
+                { "Name": "huddle", "ProcessNames": ["slack.exe"], "ClassName": "HuddleWindow" },
+                { "Name": "matches everything", "ProcessNames": ["slack.exe"] },
+              ],
             }
             """);
 
@@ -248,6 +277,7 @@ public class AppSettingsTests : IDisposable
         Assert.Equal("Ctrl+Alt+H", settings.Hotkey);
         var signature = Assert.Single(settings.CustomSignatures);
         Assert.Equal(["slack.exe"], signature.ProcessNames);
+        Assert.Equal("huddle", Assert.Single(settings.CustomMeetingSignatures).Name);
     }
 
     [Fact]

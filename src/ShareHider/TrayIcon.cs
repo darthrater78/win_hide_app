@@ -78,7 +78,9 @@ internal sealed class TrayIcon : IDisposable
         }
 
         // NotifyIcon.Text is limited to 127 characters.
-        var tooltip = $"ShareHider: {_controller.StatusTitle}";
+        var tooltip = _controller.MeetingName is { } meeting
+            ? $"ShareHider: in a {meeting} meeting. If you share and apps aren't hidden, press {_controller.HotkeyText}."
+            : $"ShareHider: {_controller.StatusTitle}";
         tooltip = tooltip.Length > 127 ? tooltip[..127] : tooltip;
         if (_icon.Text != tooltip)
         {

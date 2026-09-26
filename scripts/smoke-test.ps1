@@ -92,6 +92,16 @@ try {
     # The real taskbar's layout differs between Windows versions; when UI Automation can't
     # see Notepad's button there, the mockup state and the screenshots are the evidence.
     $taskbarBefore = Get-TaskbarNotepadCount
+
+    # How this Windows version names its taskbar buttons, for keeping a restored button's place.
+    $taskbar = $uia::RootElement.FindFirst($tree::Children,
+        [System.Windows.Automation.PropertyCondition]::new($uia::ClassNameProperty, 'Shell_TrayWnd'))
+    if ($taskbar) {
+        Write-Host 'taskbar buttons (name | automation id | class):'
+        foreach ($button in Find-Buttons $taskbar '*') {
+            Write-Host "  $($button.Current.Name) | $($button.Current.AutomationId) | $($button.Current.ClassName)"
+        }
+    }
     if ($taskbarBefore -eq 0) {
         Write-Warning "Notepad's real taskbar button isn't visible to UI Automation; checking the mockup only."
     }

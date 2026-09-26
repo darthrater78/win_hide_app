@@ -47,6 +47,17 @@ public sealed class ShareSignature
         new() { Name = "Browser: sharing window", ProcessNames = [.. Chromium], TitleContains = " is sharing a window" },
         new() { Name = "Browser: sharing tab", ProcessNames = [.. Chromium], TitleContains = " is sharing this tab" },
         new() { Name = "Microsoft Teams", ProcessNames = ["ms-teams.exe", "teams.exe"], TitleContains = "Sharing control bar" },
-        new() { Name = "Zoom", ProcessNames = ["zoom.exe"], TitleContains = "zoom share" },
+        // Zoom's floating "Screen sharing meeting controls" toolbar. Matched by class: the title is translated.
+        new() { Name = "Zoom", ProcessNames = ["zoom.exe"], ClassName = "ZPFloatToolbarClass" },
+    ];
+
+    /// <summary>
+    /// Windows that show a meeting is in progress. While one is open and no share is
+    /// detected, the app reminds the user that the hotkey hides apps if detection misses a share.
+    /// </summary>
+    public static IReadOnlyList<ShareSignature> BuiltInMeetings { get; } =
+    [
+        // The Zoom meeting window.
+        new() { Name = "Zoom", ProcessNames = ["zoom.exe"], ClassName = "ZPContentViewWndClass" },
     ];
 }

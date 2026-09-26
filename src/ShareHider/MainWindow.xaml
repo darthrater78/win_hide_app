@@ -10,6 +10,7 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <local:NullToCollapsedConverter x:Key="NullToCollapsed" />
         <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
         <Style x:Key="Card" TargetType="Border">
@@ -162,6 +163,23 @@
                                 HorizontalAlignment="Stretch" Style="{DynamicResource AccentButtonStyle}"
                                 Visibility="{Binding HasOverrides, Converter={StaticResource BoolToVisibility}}" />
                     </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Meeting reminder: detection can miss a share, so say how to hide by hand. -->
+            <Border Style="{StaticResource Card}" Background="{DynamicResource SystemFillColorCautionBackgroundBrush}"
+                    Visibility="{Binding MeetingWarning, Converter={StaticResource NullToCollapsed}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFont}" FontSize="16" Margin="0,0,12,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                    <TextBlock Grid.Column="1" Text="{Binding MeetingWarning}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Content="Hide now" Click="ShareHiding_Click" Margin="16,0,0,0" Padding="14,6"
+                            VerticalAlignment="Center" />
                 </Grid>
             </Border>
 

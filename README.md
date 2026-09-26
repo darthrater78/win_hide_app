@@ -22,7 +22,7 @@ It can minimize hidden apps too, and restore them afterwards.
   - Chrome, Edge, Brave, Vivaldi and Opera: the "*site* is sharing your screen / a
     window / this tab" bar (Google Meet, Teams on the web, and most browser-based meetings)
   - Microsoft Teams: the "Sharing control bar"
-  - Zoom: its share toolbar windows
+  - Zoom: its "Screen sharing meeting controls" toolbar
 
   Detection is checked once a second. Sharing counts as over after 3 seconds with no
   sharing window, so a toolbar that blinks doesn't bring every app back.
@@ -38,6 +38,11 @@ It can minimize hidden apps too, and restore them afterwards.
   auto-hide list right now, whatever detection says. That choice holds until
   detection sees a share start or end. **Resume automatic hiding** drops the hotkey
   choice and every on-demand click at once.
+- **Meeting reminder.** Detection can miss a share, for example after a meeting app
+  update. So while a Zoom meeting window is open and no share is detected, the window
+  shows a reminder with a **Hide now** button, and the tray icon's tooltip says to
+  press the hotkey if you share. It is never a pop-up, since that would appear in
+  your share.
 
 ### Limits worth knowing
 
@@ -106,7 +111,8 @@ Settings live in `%APPDATA%\ShareHider\settings.json`:
   "AutoDetect": true,
   "MinimizeWindows": true,
   "Hotkey": "Ctrl+Alt+H",
-  "CustomSignatures": []
+  "CustomSignatures": [],
+  "CustomMeetingSignatures": []
 }
 ```
 
@@ -131,7 +137,11 @@ defaults, and writes a note to the log. Invalid entries are dropped when the fil
 ```
 
 A signature needs at least one process, plus a `TitleContains` (a case-insensitive
-substring) and/or a `ClassName` (an exact match).
+substring) and/or a `ClassName` (an exact match). The class is the safer choice,
+because apps translate their window titles.
+
+`CustomMeetingSignatures` takes the same format and matches a window that is open
+for the whole meeting, which turns on the meeting reminder for that app.
 
 ## Privacy and security
 
@@ -146,7 +156,8 @@ substring) and/or a `ClassName` (an exact match).
     2 MB (the current log plus one rotated file).
   - `window-list.txt`: written only when you click **Save window list**, and
     overwritten each time. It holds window titles, which can include document
-    names or email subjects. Delete it whenever you like.
+    names or email subjects, and the names of your taskbar buttons. Delete it
+    whenever you like.
   - **Start with Windows** writes one value, `ShareHider`, under
     `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Turning the setting off
     deletes it.

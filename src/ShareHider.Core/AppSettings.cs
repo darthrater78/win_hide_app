@@ -30,6 +30,9 @@ public sealed class AppSettings
     /// <summary>Extra share-detection signatures, checked alongside <see cref="ShareSignature.BuiltIn"/>.</summary>
     public List<ShareSignature> CustomSignatures { get; set; } = [];
 
+    /// <summary>Extra meeting-window signatures, checked alongside <see cref="ShareSignature.BuiltInMeetings"/>.</summary>
+    public List<ShareSignature> CustomMeetingSignatures { get; set; } = [];
+
     /// <summary>
     /// Loads settings, falling back to defaults when the file is missing, oversized or unreadable.
     /// Invalid entries are dropped rather than trusted.
@@ -94,7 +97,19 @@ public sealed class AppSettings
             }
         }
 
-        var signatures = (CustomSignatures ?? [])
+        return new AppSettings
+        {
+            HiddenApps = apps,
+            AutoDetect = AutoDetect,
+            MinimizeWindows = MinimizeWindows,
+            Hotkey = Core.Hotkey.TryParse(Hotkey, out var hotkey) ? hotkey.ToString() : Core.Hotkey.Default.ToString(),
+            CustomSignatures = ValidSignatures(CustomSignatures),
+            CustomMeetingSignatures = ValidSignatures(CustomMeetingSignatures),
+        };
+    }
+
+    private static List<ShareSignature> ValidSignatures(List<ShareSignature>? signatures) =>
+        (signatures ?? [])
             .Where(s => s is not null)
             .Select(s => new ShareSignature
             {
@@ -110,14 +125,4 @@ public sealed class AppSettings
             .Where(s => s.IsValid)
             .Take(MaxCustomSignatures)
             .ToList();
-
-        return new AppSettings
-        {
-            HiddenApps = apps,
-            AutoDetect = AutoDetect,
-            MinimizeWindows = MinimizeWindows,
-            Hotkey = Core.Hotkey.TryParse(Hotkey, out var hotkey) ? hotkey.ToString() : Core.Hotkey.Default.ToString(),
-            CustomSignatures = signatures,
-        };
-    }
 }

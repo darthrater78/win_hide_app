@@ -36,6 +36,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     private AppSettings _settings;
     private bool _wasShareHiding;
     private string? _shareName;
+    private string? _meetingName;
     private bool _refreshPending;
     private bool _disposed;
 
@@ -82,6 +83,11 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     public string HotkeyText => _settings.Hotkey;
 
     public string? HotkeyError { get; private set => Set(ref field, value); }
+
+    /// <summary>The meeting app in use while no share is detected, or null. Drives the "press the hotkey" reminder.</summary>
+    public string? MeetingName { get; private set => Set(ref field, value); }
+
+    public string? MeetingWarning { get; private set => Set(ref field, value); }
 
     public bool AutoDetect
     {
@@ -181,8 +187,8 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Saves every visible window to window-list.txt, so users can write a detection
-    /// signature for a meeting app we don't recognize. Titles can be private (document
+    /// Saves every visible window and the taskbar's buttons to window-list.txt, so users
+    /// can write a detection signature for a meeting app we don't recognize. Titles can be private (document
     /// names, email subjects), so they go to a separate file that is overwritten each
     /// time, never into the rolling log.
     /// </summary>
@@ -190,7 +196,10 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     {
         var lines = WindowEnumerator.VisibleWindows()
             .Select(w => $"{w.ProcessName} | {w.ClassName} | {w.Title}")
-            .Prepend("process | class | title");
+            .Prepend("process | class | title")
+            .Append("")
+            .Append("taskbar button | automation id | class")
+            .Concat(TaskbarButtons.Read().Select(b => $"{b.Name} | {b.AutomationId} | {b.ClassName}"));
         try
         {
             Directory.CreateDirectory(Log.Directory);
@@ -228,7 +237,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         var windows = WindowEnumerator.VisibleWindows();
         if (pollForShare && _settings.AutoDetect)
         {
-            var share = FindShareWindow(windows);
+            var share = FirstMatch(ShareSignature.BuiltIn.Concat(_settings.CustomSignatures), windows);
             var changed = _share.ReportPoll(share is not null);
 
             // Keep the last name through the few polls it takes to decide the share has ended.
@@ -236,6 +245,16 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
             if (changed)
             {
                 Log.Write(_share.SharingDetected ? $"sharing detected ({_shareName})" : "sharing ended");
+            }
+        }
+
+        if (pollForShare)
+        {
+            var meeting = FirstMatch(ShareSignature.BuiltInMeetings.Concat(_settings.CustomMeetingSignatures), windows);
+            if (meeting != _meetingName)
+            {
+                Log.Write(meeting is null ? "meeting window closed" : $"meeting window seen ({meeting})");
+                _meetingName = meeting;
             }
         }
 
@@ -322,12 +341,21 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
             (null, true) => $"Sharing detected ({_shareName ?? "share window"}). Your auto-hide list is applied.",
             _ => "Click an app below to hide or show it now.",
         };
+
+        // Detection can miss a share (a meeting app renames its windows in an update), so
+        // during a meeting remind the user how to hide by hand. Nothing to remind about when
+        // the list is already applied or empty.
+        MeetingName = _meetingName is not null && !_share.SharingDetected && !_share.ShouldHide && _selection.AutoHide.Count > 0
+            ? _meetingName
+            : null;
+        MeetingWarning = MeetingName is null
+            ? null
+            : $"You're in a {MeetingName} meeting. If you share your screen and your apps aren't hidden, press {HotkeyText} or click Hide now.";
     }
 
-    /// <summary>Name of the first matching share signature, or null.</summary>
-    private string? FindShareWindow(List<WindowInfo> windows) =>
-        ShareSignature.BuiltIn.Concat(_settings.CustomSignatures)
-            .FirstOrDefault(signature => windows.Any(signature.Matches))?.Name;
+    /// <summary>Name of the first signature that matches any window, or null.</summary>
+    private static string? FirstMatch(IEnumerable<ShareSignature> signatures, List<WindowInfo> windows) =>
+        signatures.FirstOrDefault(signature => windows.Any(signature.Matches))?.Name;
 
     private void SyncAutoHideList()
     {

@@ -128,6 +128,16 @@ internal sealed partial class MainWindow : Window
     private void WindowList_Click(object sender, RoutedEventArgs e) => Controller.WriteWindowList();
 }
 
+/// <summary>Collapsed when the bound value is null, visible otherwise.</summary>
+internal sealed class NullToCollapsedConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is null ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Visible when the bound count is zero: the mockup's "no apps" message.</summary>
 internal sealed class ZeroToVisibleConverter : IValueConverter
 {
