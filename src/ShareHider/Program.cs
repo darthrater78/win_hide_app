@@ -42,6 +42,7 @@ internal static class Program
         void Exit()
         {
             window.PrepareExit();
+            controller.RestoreInPlace();
             app.Shutdown();
         }
 

@@ -7,6 +7,19 @@ internal static class TaskbarButtons
 {
     public sealed record Button(string Name, string AutomationId, string ClassName);
 
+    private const string AppIdPrefix = "Appid: ";
+
+    /// <summary>
+    /// The app ids of the taskbar's app buttons (pinned and running), left to right. Empty
+    /// when this Windows version's taskbar doesn't expose them, which turns off keeping
+    /// restored buttons in place.
+    /// </summary>
+    public static List<string> AppIds() =>
+        Read()
+            .Where(b => b.AutomationId.StartsWith(AppIdPrefix, StringComparison.Ordinal))
+            .Select(b => b.AutomationId[AppIdPrefix.Length..])
+            .ToList();
+
     /// <summary>Every button on the primary taskbar (Start, pinned and running apps, tray), or empty when unreadable.</summary>
     public static List<Button> Read()
     {

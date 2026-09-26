@@ -114,6 +114,47 @@ internal static class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool QueryFullProcessImageNameW(nint process, uint flags, StringBuilder buffer, ref uint size);
 
+    public const int VT_LPWSTR = 31;
+
+    /// <summary>A window's property store: holds the app id the taskbar groups it under, when the app set one.</summary>
+    [DllImport("shell32.dll")]
+    public static extern int SHGetPropertyStoreForWindow(
+        nint hwnd, in Guid iid, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore store);
+
+    /// <summary>The app id of a packaged (Store) app's process. ERROR_INSUFFICIENT_BUFFER sizes the buffer.</summary>
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetApplicationUserModelId(nint process, ref uint length, StringBuilder? id);
+
+    /// <summary>Path of a known folder such as System or Program Files. Free the result with CoTaskMemFree.</summary>
+    [DllImport("shell32.dll")]
+    public static extern int SHGetKnownFolderPath(in Guid folderId, uint flags, nint token, out nint path);
+
+    [DllImport("ole32.dll")]
+    public static extern int PropVariantClear(ref PropVariant value);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public readonly record struct PropertyKey(Guid FormatId, uint PropertyId);
+
+    /// <summary>Only the string case is read, so only the type tag and the pointer are declared.</summary>
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
+    public struct PropVariant
+    {
+        [FieldOffset(0)] public ushort VarType;
+        [FieldOffset(8)] public nint Pointer;
+    }
+
+    [ComImport]
+    [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IPropertyStore
+    {
+        [PreserveSig] int GetCount(out uint count);
+        [PreserveSig] int GetAt(uint index, out PropertyKey key);
+        [PreserveSig] int GetValue(in PropertyKey key, out PropVariant value);
+        [PreserveSig] int SetValue(in PropertyKey key, in PropVariant value);
+        [PreserveSig] int Commit();
+    }
+
     /// <summary>The shell's taskbar button list. DeleteTab/AddTab work on any top-level window.</summary>
     [ComImport]
     [Guid("56FDF342-FD6D-11d0-958A-006097C9A090")]

@@ -31,6 +31,8 @@ All notable changes to this project are documented here. The format follows
   share is detected, with a **Hide now** button, since detection can miss a share.
   `CustomMeetingSignatures` in `settings.json` adds other meeting apps.
 - **Save window list** also lists the taskbar's buttons, in order.
+- Restored taskbar buttons go back to their original place instead of the end of the
+  taskbar. The buttons after them blink once while they are put back in order.
 - CI: a Windows build check with a smoke test that launches the app and hides and restores
   Notepad's taskbar button, uploading a test exe and screenshots for every push, tag-triggered
   releases (including pre-releases from feature branches), and workflow linting.

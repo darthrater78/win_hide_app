@@ -485,3 +485,81 @@ public class AppOrderTests
         Assert.Equal(["a.exe", "c.exe", "b.exe"], order.Update(["b.exe", "a.exe", "c.exe"]));
     }
 }
+
+public class TaskbarOrderTests
+{
+    private static readonly HashSet<string> None = [];
+
+    [Fact]
+    public void Merge_keeps_hidden_apps_after_the_app_they_followed()
+    {
+        var known = new[] { "edge", "outlook", "notepad", "slack" };
+        var merged = TaskbarOrder.Merge(known, ["edge", "notepad", "slack", "zoom"], new HashSet<string> { "outlook" });
+        Assert.Equal(["edge", "outlook", "notepad", "slack", "zoom"], merged);
+    }
+
+    [Fact]
+    public void Merge_puts_a_hidden_first_app_first_and_forgets_closed_apps()
+    {
+        var merged = TaskbarOrder.Merge(["outlook", "edge", "gone"], ["edge"], new HashSet<string> { "outlook" });
+        Assert.Equal(["outlook", "edge"], merged);
+    }
+
+    [Fact]
+    public void Merge_with_nothing_known_is_the_observed_order() =>
+        Assert.Equal(["a", "b"], TaskbarOrder.Merge([], ["a", "b", "a"], None));
+
+    [Fact]
+    public void Plan_is_empty_when_the_order_is_right() =>
+        Assert.Empty(TaskbarOrder.Plan(["a", "b", "c"], ["a", "b", "c"]));
+
+    [Fact]
+    public void Plan_cycles_the_apps_after_a_restored_one()
+    {
+        // outlook was second; re-adding it put it last.
+        var plan = TaskbarOrder.Plan(["edge", "outlook", "notepad", "slack"], ["edge", "notepad", "slack", "outlook"]);
+        Assert.Equal(["notepad", "slack"], plan);
+    }
+
+    [Fact]
+    public void Plan_restores_several_apps_at_once()
+    {
+        var plan = TaskbarOrder.Plan(["a", "b", "c", "d", "e"], ["a", "c", "e", "b", "d"]);
+        Assert.Equal(["c", "d", "e"], plan);
+        Assert.Equal(["a", "b", "c", "d", "e"], Apply(["a", "c", "e", "b", "d"], plan));
+    }
+
+    [Fact]
+    public void Plan_leaves_new_apps_after_the_known_ones()
+    {
+        var current = new[] { "a", "new", "c", "b" };
+        var plan = TaskbarOrder.Plan(["a", "b", "c"], current);
+        Assert.Equal(["a", "b", "c", "new"], Apply(current, plan));
+    }
+
+    [Theory]
+    [InlineData("abcdef", "fedcba")]
+    [InlineData("abcdef", "bacdfe")]
+    [InlineData("abcdef", "abcdef")]
+    [InlineData("abcdef", "cabdef")]
+    public void Plan_always_reaches_the_desired_order(string desired, string current)
+    {
+        var want = desired.Select(c => c.ToString()).ToList();
+        var have = current.Select(c => c.ToString()).ToList();
+        Assert.Equal(want, Apply(have, TaskbarOrder.Plan(want, have)));
+    }
+
+    /// <summary>What the taskbar does: each cycled app goes to the end.</summary>
+    private static List<string> Apply(IEnumerable<string> current, IEnumerable<string> plan)
+    {
+        var result = current.ToList();
+        foreach (var id in plan)
+        {
+            result.Remove(id);
+            result.Add(id);
+        }
+
+        return result;
+    }
+}
+

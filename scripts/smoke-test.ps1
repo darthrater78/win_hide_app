@@ -60,12 +60,23 @@ function Get-TaskbarNotepadCount {
     $taskbar = $uia::RootElement.FindFirst($tree::Children, $condition)
     if (-not $taskbar) { return 0 }
     # @() because PowerShell unwraps a one-item array returned from a function.
-    # @() because PowerShell unwraps a one-item array returned from a function.
     @(Find-Buttons $taskbar '*Notepad*').Count
 }
 
-# Something for the taskbar mockup to show.
+# The app ids of the taskbar's app buttons, left to right ("" when not exposed).
+function Get-TaskbarOrder {
+    $condition = [System.Windows.Automation.PropertyCondition]::new($uia::ClassNameProperty, 'Shell_TrayWnd')
+    $taskbar = $uia::RootElement.FindFirst($tree::Children, $condition)
+    if (-not $taskbar) { return '' }
+    (@(Find-Buttons $taskbar '*') | ForEach-Object { $_.Current.AutomationId } |
+        Where-Object { $_ -like 'Appid: *' }) -join ' / '
+}
+
+# Something for the taskbar mockup to show, plus a second app after Notepad, so restoring
+# Notepad in its old place means moving the buttons after it.
 $notepad = Start-Process -FilePath notepad.exe -PassThru
+$charmapPath = Join-Path $env:SystemRoot 'System32\charmap.exe'
+$charmap = if (Test-Path $charmapPath) { Start-Process -FilePath $charmapPath -PassThru } else { $null }
 $app = Start-Process -FilePath (Resolve-Path $Exe) -PassThru
 try {
     Start-Sleep -Seconds $StartupSeconds
@@ -106,6 +117,9 @@ try {
         Write-Warning "Notepad's real taskbar button isn't visible to UI Automation; checking the mockup only."
     }
 
+    $orderBefore = Get-TaskbarOrder
+    Write-Host "taskbar order before: $orderBefore"
+
     Invoke-MockButton
     Wait-Until { (Get-MockButton).Current.HelpText -like '*Hidden from the taskbar*' } `
         'The mockup did not mark Notepad hidden after the click.' | Out-Null
@@ -122,10 +136,25 @@ try {
         Wait-Until { (Get-TaskbarNotepadCount) -gt 0 } "Notepad's button did not come back to the taskbar." | Out-Null
     }
     Write-Host 'Notepad restored'
+
+    # The restored button must be back in its old place, not on the end.
+    if ($orderBefore) {
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        do {
+            Start-Sleep -Milliseconds 250
+            $orderAfter = Get-TaskbarOrder
+        } while ($orderAfter -ne $orderBefore -and (Get-Date) -lt $deadline)
+        Write-Host "taskbar order after:  $orderAfter"
+        if ($orderAfter -ne $orderBefore) {
+            Save-Screenshot 'smoke-3-restored.png'
+            throw 'Notepad did not go back to its original place on the taskbar.'
+        }
+        Write-Host 'Notepad is back in its original place'
+    }
     Save-Screenshot 'smoke-3-restored.png'
 }
 finally {
-    foreach ($process in $app, $notepad) {
+    foreach ($process in @($app, $notepad, $charmap) | Where-Object { $_ }) {
         if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
     }
 }

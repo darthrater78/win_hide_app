@@ -31,6 +31,12 @@ It can minimize hidden apps too, and restore them afterwards.
   taskbar API (`ITaskbarList::DeleteTab`), and put back with `AddTab`. While hiding
   is on, ShareHider re-hides immediately when one of those apps opens a new window,
   and again every second in case Explorer adds a button back.
+- **Keeping each button's place.** Windows always puts a re-added button at the end
+  of the taskbar, and has no way to place one. So before hiding, ShareHider reads the
+  taskbar's order (through UI Automation, the same interface screen readers use).
+  After restoring, it takes the buttons that belong after the restored one off the
+  taskbar and adds them back in order, so everything lands where it was. Those buttons
+  blink once while that happens.
 - **Hiding on demand.** Clicking an app in the taskbar mockup hides or shows it
   straight away, whether or not you're sharing. A hide you choose this way lasts
   until you click the app again or quit ShareHider. A show you choose during a share
@@ -56,6 +62,9 @@ It can minimize hidden apps too, and restore them afterwards.
   on the screen you're sharing, people can still see it. Turn on **Also minimize** to
   get it off the screen as well.
 - **Alt+Tab still lists hidden apps.**
+- **A restored button goes on the end** when ShareHider can't read the taskbar's order
+  (older taskbars), and when it restores everything at sign-out or after an unexpected
+  error, where Explorer may not answer. Pinned apps always keep their pinned place.
 - **Detection depends on how each meeting app names its windows**, and an update to
   the app can change that. If your meeting app isn't detected, see
   [Adding detection for another app](#adding-detection-for-another-app), or use the hotkey.

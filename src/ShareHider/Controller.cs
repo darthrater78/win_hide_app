@@ -655,6 +655,9 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         });
     }
 
+    /// <summary>For a normal exit: restores every hidden button in its original place before <see cref="Dispose"/>.</summary>
+    public void RestoreInPlace() => _taskbar.RestoreAll(inPlace: true);
+
     /// <summary>Restores every hidden button and window. Safe to call more than once.</summary>
     public void Dispose()
     {

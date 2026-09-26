@@ -10,13 +10,20 @@ namespace ShareHider;
 /// Explorer re-adds a button whenever it re-registers the window (Explorer restart, some
 /// title or state changes), so <see cref="Hide"/> is meant to be called repeatedly while
 /// hiding is on. Calling DeleteTab on an already-removed button is harmless.
+///
+/// Re-adding a button puts it at the end of the taskbar. To put it back where it was,
+/// the taskbar's order is read (UI Automation) before hiding, and after a restore the
+/// buttons that belong after it are cycled to the end in order (<see cref="TaskbarOrder"/>).
 /// </remarks>
 internal sealed class TaskbarController : IDisposable
 {
     private readonly Native.ITaskbarList _taskbar;
 
-    /// <summary>Windows currently hidden: their process, and whether we minimized them.</summary>
-    private readonly Dictionary<nint, (string Process, bool MinimizedByUs)> _hidden = [];
+    /// <summary>Windows currently hidden: their process, whether we minimized them, and their taskbar app id if known.</summary>
+    private readonly Dictionary<nint, (string Process, bool MinimizedByUs, string? AppId)> _hidden = [];
+
+    /// <summary>The taskbar's app ids, left to right, including hidden apps at their old places.</summary>
+    private List<string> _order = [];
 
     public TaskbarController()
     {
@@ -29,10 +36,13 @@ internal sealed class TaskbarController : IDisposable
     /// <summary>Hides the taskbar buttons of the given windows. New windows are minimized first when asked.</summary>
     public void Hide(IEnumerable<WindowInfo> windows, bool minimize)
     {
-        foreach (var window in windows)
+        var list = windows.ToList();
+        var appIds = RememberOrder(list.Where(w => !_hidden.ContainsKey(w.Handle)).ToList());
+        foreach (var window in list)
         {
             var hwnd = window.Handle;
             var minimizedByUs = _hidden.TryGetValue(hwnd, out var entry) && entry.MinimizedByUs;
+            var appId = entry.AppId ?? appIds.GetValueOrDefault(hwnd);
             if (!_hidden.ContainsKey(hwnd))
             {
                 // Minimize only the first time we see a window, so one the user
@@ -54,7 +64,7 @@ internal sealed class TaskbarController : IDisposable
                 Log.Write($"DeleteTab failed for 0x{hwnd:X}: 0x{ex.HResult:X8}");
             }
 
-            _hidden[hwnd] = (window.ProcessName, minimizedByUs);
+            _hidden[hwnd] = (window.ProcessName, minimizedByUs, appId);
         }
 
         // Forget windows that have closed, so a recycled handle is never "restored".
@@ -64,16 +74,29 @@ internal sealed class TaskbarController : IDisposable
         }
     }
 
-    /// <summary>Puts every hidden button back and un-minimizes the windows we minimized.</summary>
-    public void RestoreAll() => RestoreWhere(_ => true);
+    /// <summary>
+    /// Puts every hidden button back and un-minimizes the windows we minimized. With
+    /// <paramref name="inPlace"/> false the buttons just go on the end, which needs no
+    /// UI Automation: the path for logoff and unexpected errors, where Explorer may not answer.
+    /// </summary>
+    public void RestoreAll(bool inPlace) => RestoreWhere(_ => true, inPlace);
 
     /// <summary>Restores only the windows of apps no longer in <paramref name="stillHidden"/>, e.g. after a settings change mid-share.</summary>
-    public void RestoreAppsNotIn(IReadOnlySet<string> stillHidden) => RestoreWhere(p => !stillHidden.Contains(p));
+    public void RestoreAppsNotIn(IReadOnlySet<string> stillHidden) => RestoreWhere(p => !stillHidden.Contains(p), inPlace: true);
 
-    private void RestoreWhere(Func<string, bool> shouldRestore)
+    private void RestoreWhere(Func<string, bool> shouldRestore, bool inPlace)
     {
         var restore = _hidden.Where(e => shouldRestore(e.Value.Process)).ToList();
-        foreach (var (hwnd, (_, minimizedByUs)) in restore)
+        if (restore.Count == 0)
+        {
+            return;
+        }
+
+        var observed = inPlace && _order.Count > 0 ? TaskbarButtons.AppIds() : [];
+
+        // Re-add in remembered order, so apps restored together are already right among themselves.
+        var ordered = restore.OrderBy(e => e.Value.AppId is { } id && _order.IndexOf(id) is >= 0 and var i ? i : int.MaxValue).ToList();
+        foreach (var (hwnd, (_, minimizedByUs, _)) in ordered)
         {
             _hidden.Remove(hwnd);
             if (Native.IsWindow(hwnd))
@@ -82,11 +105,81 @@ internal sealed class TaskbarController : IDisposable
             }
         }
 
-        if (restore.Count > 0)
+        Log.Write($"restored {restore.Count} window(s)");
+        if (observed.Count > 0)
         {
-            Log.Write($"restored {restore.Count} window(s)");
+            var restoredIds = ordered.Select(e => e.Value.AppId).OfType<string>().Distinct().ToList();
+            MoveBackIntoPlace(observed, restoredIds);
         }
     }
+
+    /// <summary>
+    /// Reads the taskbar's order before new windows are hidden, keeping the places of apps
+    /// hidden earlier, and returns the app id of each new window.
+    /// </summary>
+    private Dictionary<nint, string> RememberOrder(List<WindowInfo> newWindows)
+    {
+        if (newWindows.Count == 0)
+        {
+            return [];
+        }
+
+        var observed = TaskbarButtons.AppIds();
+        if (observed.Count == 0)
+        {
+            return [];
+        }
+
+        _order = TaskbarOrder.Merge(_order, observed, HiddenAppIds());
+        return AppIds.MatchButtons(newWindows, observed);
+    }
+
+    /// <summary>
+    /// Restored buttons were added at the end. Cycles the buttons that belong after them,
+    /// in order, so everything is back where it was. Buttons with no window we can reach
+    /// (pinned apps that aren't running, apps whose id we can't read) stay put.
+    /// </summary>
+    private void MoveBackIntoPlace(List<string> observed, List<string> restoredIds)
+    {
+        _order = TaskbarOrder.Merge(_order, observed, HiddenAppIds().Concat(restoredIds).ToHashSet());
+        var current = observed.Concat(restoredIds).Distinct().ToList();
+        var shown = WindowEnumerator.VisibleWindows()
+            .Where(w => !_hidden.ContainsKey(w.Handle) && WindowEnumerator.HasTaskbarButton(w))
+            .ToList();
+
+        // The enumerator skips our own windows, but our button may sit after a restored one too.
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        if (self.MainWindowHandle != 0 && Native.IsWindowVisible(self.MainWindowHandle))
+        {
+            shown.Add(new WindowInfo(self.MainWindowHandle, "", "", "", Environment.ProcessPath ?? ""));
+        }
+        var windowsById = AppIds.MatchButtons(shown, current)
+            .GroupBy(pair => pair.Value, pair => pair.Key)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var plan = TaskbarOrder.Plan(
+            _order.Where(windowsById.ContainsKey).ToList(),
+            current.Where(windowsById.ContainsKey).ToList());
+        foreach (var hwnd in plan.SelectMany(id => windowsById[id]))
+        {
+            try
+            {
+                _taskbar.DeleteTab(hwnd);
+                _taskbar.AddTab(hwnd);
+            }
+            catch (COMException ex)
+            {
+                Log.Write($"moving the button of 0x{hwnd:X} failed: 0x{ex.HResult:X8}");
+            }
+        }
+
+        if (plan.Count > 0)
+        {
+            Log.Write($"moved {plan.Count} app(s) back into place on the taskbar");
+        }
+    }
+
+    private HashSet<string> HiddenAppIds() => _hidden.Values.Select(v => v.AppId).OfType<string>().ToHashSet();
 
     private void Restore(nint hwnd, bool minimizedByUs)
     {
@@ -107,7 +200,7 @@ internal sealed class TaskbarController : IDisposable
 
     public void Dispose()
     {
-        RestoreAll();
+        RestoreAll(inPlace: false);
         Marshal.ReleaseComObject(_taskbar);
     }
 }
