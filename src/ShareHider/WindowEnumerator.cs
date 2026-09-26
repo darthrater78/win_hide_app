@@ -16,9 +16,10 @@ internal static class WindowEnumerator
 
     /// <summary>
     /// One pass over all visible top-level windows. Process details are cached for the
-    /// pass only, so a reused PID can never return a stale name.
+    /// pass only, so a reused PID can never return a stale name. ShareHider's own windows
+    /// are left out unless <paramref name="includeOwn"/>: it must never hide itself.
     /// </summary>
-    public static List<WindowInfo> VisibleWindows()
+    public static List<WindowInfo> VisibleWindows(bool includeOwn = false)
     {
         var windows = new List<WindowInfo>();
         var processes = new Dictionary<uint, (string Name, string Path)>();
@@ -32,7 +33,7 @@ internal static class WindowEnumerator
             }
 
             Native.GetWindowThreadProcessId(hwnd, out var pid);
-            if (pid == OwnProcessId)
+            if (pid == OwnProcessId && !includeOwn)
             {
                 return true;
             }

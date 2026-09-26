@@ -147,6 +147,8 @@ try {
         Write-Host "taskbar order after:  $orderAfter"
         if ($orderAfter -ne $orderBefore) {
             Save-Screenshot 'smoke-3-restored.png'
+            $log = Join-Path $env:LOCALAPPDATA 'ShareHider\log.txt'
+            if (Test-Path $log) { Get-Content $log -Tail 20 }
             throw 'Notepad did not go back to its original place on the taskbar.'
         }
         Write-Host 'Notepad is back in its original place'

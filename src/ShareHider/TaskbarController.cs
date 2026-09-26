@@ -143,16 +143,10 @@ internal sealed class TaskbarController : IDisposable
     {
         _order = TaskbarOrder.Merge(_order, observed, HiddenAppIds().Concat(restoredIds).ToHashSet());
         var current = observed.Concat(restoredIds).Distinct().ToList();
-        var shown = WindowEnumerator.VisibleWindows()
+        // Our own window too: its button may sit after a restored one.
+        var shown = WindowEnumerator.VisibleWindows(includeOwn: true)
             .Where(w => !_hidden.ContainsKey(w.Handle) && WindowEnumerator.HasTaskbarButton(w))
             .ToList();
-
-        // The enumerator skips our own windows, but our button may sit after a restored one too.
-        using var self = System.Diagnostics.Process.GetCurrentProcess();
-        if (self.MainWindowHandle != 0 && Native.IsWindowVisible(self.MainWindowHandle))
-        {
-            shown.Add(new WindowInfo(self.MainWindowHandle, "", "", "", Environment.ProcessPath ?? ""));
-        }
         var windowsById = AppIds.MatchButtons(shown, current)
             .GroupBy(pair => pair.Value, pair => pair.Key)
             .ToDictionary(g => g.Key, g => g.ToList());
@@ -176,6 +170,12 @@ internal sealed class TaskbarController : IDisposable
         if (plan.Count > 0)
         {
             Log.Write($"moved {plan.Count} app(s) back into place on the taskbar");
+        }
+
+        var unmovable = current.Where(id => !windowsById.ContainsKey(id)).ToList();
+        if (unmovable.Count > 0)
+        {
+            Log.Write($"taskbar buttons with no window to move: {string.Join(", ", unmovable)}");
         }
     }
 
