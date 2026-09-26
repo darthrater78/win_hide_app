@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Windows.Threading;
 using ShareHider.Core;
 
 namespace ShareHider;
@@ -17,7 +18,13 @@ namespace ShareHider;
 /// </remarks>
 internal sealed class TaskbarController : IDisposable
 {
+    // Explorer applies taskbar changes asynchronously, so moves sent back to back can land
+    // out of order (CI showed it). Moves go out one per tick, after the re-adds settle.
+    private static readonly TimeSpan MoveInterval = TimeSpan.FromMilliseconds(120);
+
     private readonly Native.ITaskbarList _taskbar;
+    private readonly Queue<nint> _pendingMoves = [];
+    private readonly DispatcherTimer _moveTimer = new() { Interval = MoveInterval };
 
     /// <summary>Windows currently hidden: their process, whether we minimized them, and their taskbar app id if known.</summary>
     private readonly Dictionary<nint, (string Process, bool MinimizedByUs, string? AppId)> _hidden = [];
@@ -27,6 +34,7 @@ internal sealed class TaskbarController : IDisposable
 
     public TaskbarController()
     {
+        _moveTimer.Tick += (_, _) => MoveNext();
         _taskbar = (Native.ITaskbarList)new Native.TaskbarList();
         _taskbar.HrInit();
     }
@@ -79,7 +87,20 @@ internal sealed class TaskbarController : IDisposable
     /// <paramref name="inPlace"/> false the buttons just go on the end, which needs no
     /// UI Automation: the path for logoff and unexpected errors, where Explorer may not answer.
     /// </summary>
-    public void RestoreAll(bool inPlace) => RestoreWhere(_ => true, inPlace);
+    public void RestoreAll(bool inPlace)
+    {
+        RestoreWhere(_ => true, inPlace);
+        if (inPlace)
+        {
+            // Exiting: the timer won't run again, so make the queued moves now, same pacing.
+            _moveTimer.Stop();
+            while (_pendingMoves.Count > 0)
+            {
+                Thread.Sleep(MoveInterval);
+                MoveNext();
+            }
+        }
+    }
 
     /// <summary>Restores only the windows of apps no longer in <paramref name="stillHidden"/>, e.g. after a settings change mid-share.</summary>
     public void RestoreAppsNotIn(IReadOnlySet<string> stillHidden) => RestoreWhere(p => !stillHidden.Contains(p), inPlace: true);
@@ -91,6 +112,10 @@ internal sealed class TaskbarController : IDisposable
         {
             return;
         }
+
+        // A new restore replans from the taskbar as it is now.
+        _pendingMoves.Clear();
+        _moveTimer.Stop();
 
         var observed = inPlace && _order.Count > 0 ? TaskbarButtons.AppIds() : [];
 
@@ -156,7 +181,12 @@ internal sealed class TaskbarController : IDisposable
             current.Where(windowsById.ContainsKey).ToList());
         foreach (var hwnd in plan.SelectMany(id => windowsById[id]))
         {
-            MoveToEnd(hwnd);
+            _pendingMoves.Enqueue(hwnd);
+        }
+
+        if (_pendingMoves.Count > 0)
+        {
+            _moveTimer.Start(); // first move one interval from now, after the re-adds
         }
 
         if (plan.Count > 0)
@@ -168,6 +198,20 @@ internal sealed class TaskbarController : IDisposable
         if (unmovable.Count > 0)
         {
             Log.Write($"taskbar buttons with no window to move: {string.Join(", ", unmovable)}");
+        }
+    }
+
+    private void MoveNext()
+    {
+        if (!_pendingMoves.TryDequeue(out var hwnd))
+        {
+            _moveTimer.Stop();
+            return;
+        }
+
+        if (Native.IsWindow(hwnd) && !_hidden.ContainsKey(hwnd))
+        {
+            MoveToEnd(hwnd);
         }
     }
 
@@ -217,6 +261,8 @@ internal sealed class TaskbarController : IDisposable
 
     public void Dispose()
     {
+        _moveTimer.Stop();
+        _pendingMoves.Clear();
         RestoreAll(inPlace: false);
         Marshal.ReleaseComObject(_taskbar);
     }
