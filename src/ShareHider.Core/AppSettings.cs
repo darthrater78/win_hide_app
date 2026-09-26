@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ShareHider.Core;
 
@@ -6,6 +7,7 @@ namespace ShareHider.Core;
 public sealed class AppSettings
 {
     public const int MaxHiddenApps = 200;
+    public const int MaxGroups = 20;
     public const int MaxCustomSignatures = 50;
     public const long MaxFileBytes = 256 * 1024;
 
@@ -17,8 +19,18 @@ public sealed class AppSettings
         MaxDepth = 16,
     };
 
-    /// <summary>Exe names whose windows are hidden from the taskbar while sharing.</summary>
-    public List<string> HiddenApps { get; set; } = [];
+    /// <summary>
+    /// The auto-hide list from before groups existed. Read only to move it into the
+    /// first group; never written back.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? HiddenApps { get; set; }
+
+    /// <summary>Saved groups of apps. Normalized settings always have at least one.</summary>
+    public List<HideGroup> Groups { get; set; } = [];
+
+    /// <summary>Name of the group hidden automatically while sharing.</summary>
+    public string? ActiveGroup { get; set; }
 
     public bool AutoDetect { get; set; } = true;
 
@@ -46,20 +58,20 @@ public sealed class AppSettings
             var info = new FileInfo(path);
             if (!info.Exists)
             {
-                return new AppSettings();
+                return new AppSettings().Normalized();
             }
 
             if (info.Length > MaxFileBytes)
             {
                 error = $"settings file is larger than {MaxFileBytes / 1024} KB; using defaults";
-                return new AppSettings();
+                return new AppSettings().Normalized();
             }
 
             var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions);
             if (loaded is null)
             {
                 error = "settings file is empty; using defaults";
-                return new AppSettings();
+                return new AppSettings().Normalized();
             }
 
             return loaded.Normalized();
@@ -67,7 +79,7 @@ public sealed class AppSettings
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             error = $"settings file could not be read ({ex.GetType().Name}); using defaults";
-            return new AppSettings();
+            return new AppSettings().Normalized();
         }
     }
 
@@ -88,8 +100,62 @@ public sealed class AppSettings
     /// <summary>Returns a copy with invalid, duplicate and excess entries removed.</summary>
     public AppSettings Normalized()
     {
+        var mainHotkey = Core.Hotkey.TryParse(Hotkey, out var hotkey) ? hotkey : Core.Hotkey.Default;
+        var groups = ValidGroups(mainHotkey);
+        var active = groups.FirstOrDefault(g => string.Equals(g.Name, ActiveGroup, StringComparison.OrdinalIgnoreCase))
+            ?? groups[0];
+
+        return new AppSettings
+        {
+            Groups = groups,
+            ActiveGroup = active.Name,
+            AutoDetect = AutoDetect,
+            MinimizeWindows = MinimizeWindows,
+            Hotkey = mainHotkey.ToString(),
+            CustomSignatures = ValidSignatures(CustomSignatures),
+            CustomMeetingSignatures = ValidSignatures(CustomMeetingSignatures),
+        };
+    }
+
+    /// <summary>
+    /// Valid, uniquely named groups with clean app lists. A hotkey that doesn't parse or
+    /// is already taken (by the main hotkey or an earlier group) is dropped. An old
+    /// auto-hide list becomes the first group when there are no groups yet.
+    /// </summary>
+    private List<HideGroup> ValidGroups(Hotkey mainHotkey)
+    {
+        var source = Groups is { Count: > 0 } ? Groups : [new HideGroup { Name = HideGroup.DefaultName, Apps = HiddenApps ?? [] }];
+        var taken = new HashSet<Hotkey> { mainHotkey };
+        var groups = new List<HideGroup>();
+        foreach (var group in source)
+        {
+            if (group is null
+                || !HideGroup.TryNormalizeName(group.Name, out var name)
+                || groups.Any(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            string? groupHotkey = null;
+            if (Core.Hotkey.TryParse(group.Hotkey, out var parsed) && taken.Add(parsed))
+            {
+                groupHotkey = parsed.ToString();
+            }
+
+            groups.Add(new HideGroup { Name = name, Apps = ValidApps(group.Apps), Hotkey = groupHotkey });
+            if (groups.Count == MaxGroups)
+            {
+                break;
+            }
+        }
+
+        return groups.Count > 0 ? groups : [new HideGroup { Name = HideGroup.DefaultName }];
+    }
+
+    private static List<string> ValidApps(List<string>? input)
+    {
         var apps = new List<string>();
-        foreach (var app in HiddenApps ?? [])
+        foreach (var app in input ?? [])
         {
             if (ExeName.TryNormalize(app, out var name) && !apps.Contains(name) && apps.Count < MaxHiddenApps)
             {
@@ -97,15 +163,7 @@ public sealed class AppSettings
             }
         }
 
-        return new AppSettings
-        {
-            HiddenApps = apps,
-            AutoDetect = AutoDetect,
-            MinimizeWindows = MinimizeWindows,
-            Hotkey = Core.Hotkey.TryParse(Hotkey, out var hotkey) ? hotkey.ToString() : Core.Hotkey.Default.ToString(),
-            CustomSignatures = ValidSignatures(CustomSignatures),
-            CustomMeetingSignatures = ValidSignatures(CustomMeetingSignatures),
-        };
+        return apps;
     }
 
     private static List<ShareSignature> ValidSignatures(List<ShareSignature>? signatures) =>

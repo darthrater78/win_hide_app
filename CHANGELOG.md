@@ -9,9 +9,10 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - A window with a live copy of your taskbar: click any running app to hide or show its
-  taskbar button on demand, and right-click it to hide it automatically while sharing.
-- Hides the auto-hide list's taskbar buttons while you share your screen, and restores
-  them afterwards.
+  taskbar button on demand, and right-click it to add it to a group.
+- Saved groups of apps. The active group is hidden while you share your screen and
+  restored afterwards; any group can be hidden by hand, from the tray's Groups menu,
+  or with its own optional hotkey.
 - Windows 11 look (WPF Fluent theme, follows light and dark mode), a new app and tray
   icon, and an amber tray icon while anything is hidden.
 - Start with Windows, closing to the tray, and bringing the window back by starting the
@@ -22,8 +23,8 @@ All notable changes to this project are documented here. The format follows
 - Optional minimizing of hidden apps during a share, restored afterwards.
 - Global hotkey (default Ctrl+Alt+H), a tray toggle, and double-clicking the tray icon
   to hide or show by hand.
-- Settings for automatic detection, minimizing, the hotkey, and adding apps to the
-  auto-hide list by exe name.
+- Settings for automatic detection, minimizing, the hotkey, and adding apps to a group
+  by exe name.
 - A diagnostics option that saves the visible-window list to `window-list.txt`.
 - Tray menu links to the GitHub project page and the latest release notes.
 - A reminder in the window and the tray tooltip while a Zoom meeting is open and no

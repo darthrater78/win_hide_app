@@ -16,7 +16,8 @@ internal sealed class TrayIcon : IDisposable
     private readonly Icon _idleIcon = LoadIcon("ShareHider.ico");
     private readonly Icon _activeIcon = LoadIcon("ShareHiderActive.ico");
     private readonly ToolStripMenuItem _status = new() { Enabled = false };
-    private readonly ToolStripMenuItem _shareHiding = new("&Apply auto-hide list now");
+    private readonly ToolStripMenuItem _shareHiding = new("&Hide the active group");
+    private readonly ToolStripMenuItem _groups = new("&Groups");
     private readonly ToolStripMenuItem _autoDetect = new("Auto-&detect screen sharing");
     private readonly ToolStripMenuItem _resume = new("&Resume automatic hiding");
 
@@ -26,6 +27,8 @@ internal sealed class TrayIcon : IDisposable
         _shareHiding.Click += (_, _) => controller.ToggleShareHiding();
         _autoDetect.Click += (_, _) => controller.AutoDetect = !controller.AutoDetect;
         _resume.Click += (_, _) => controller.ResumeAutomatic();
+        _groups.DropDownItems.Add(new ToolStripMenuItem()); // placeholder, so the submenu arrow shows
+        _groups.DropDownOpening += (_, _) => FillGroupsMenu();
 
         var menu = new ContextMenuStrip();
         menu.Items.AddRange(
@@ -34,6 +37,7 @@ internal sealed class TrayIcon : IDisposable
             _status,
             new ToolStripSeparator(),
             _shareHiding,
+            _groups,
             _autoDetect,
             _resume,
             new ToolStripSeparator(),
@@ -59,6 +63,23 @@ internal sealed class TrayIcon : IDisposable
         using var stream = typeof(TrayIcon).Assembly.GetManifestResourceStream($"ShareHider.Assets.{name}")
             ?? throw new InvalidOperationException($"missing embedded icon {name}");
         return new Icon(stream, SystemInformation.SmallIconSize);
+    }
+
+    /// <summary>One entry per group, rebuilt each time the submenu opens so it is never stale.</summary>
+    private void FillGroupsMenu()
+    {
+        _groups.DropDownItems.Clear();
+        foreach (var group in _controller.Groups)
+        {
+            // "&&" so an ampersand in a group name isn't read as an access key.
+            var text = $"{(group.IsHidden ? "Show" : "Hide")} {group.DisplayName.Replace("&", "&&")}";
+            var item = new ToolStripMenuItem(text, null, (_, _) => _controller.ToggleGroup(group))
+            {
+                Checked = group.IsHidden,
+                ShortcutKeyDisplayString = group.Hotkey,
+            };
+            _groups.DropDownItems.Add(item);
+        }
     }
 
     private void OnControllerChanged(object? sender, PropertyChangedEventArgs e) => UpdateMenu();

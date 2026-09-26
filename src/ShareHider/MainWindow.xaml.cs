@@ -20,6 +20,14 @@ internal sealed partial class MainWindow : Window
         InitializeComponent();
         VersionRun.Text = $"ShareHider {AppInfo.Version}";
         HotkeyBox.Text = controller.HotkeyText;
+        ShowSelectedGroup();
+        controller.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Controller.SelectedGroup))
+            {
+                ShowSelectedGroup();
+            }
+        };
     }
 
     public void ShowAndActivate()
@@ -63,27 +71,116 @@ internal sealed partial class MainWindow : Window
         }
     }
 
-    private void ToggleMenu_Click(object sender, RoutedEventArgs e) => AppButton_Click(sender, e);
-
-    private void AutoHideMenu_Click(object sender, RoutedEventArgs e)
+    /// <summary>Builds the mockup button's menu: hide or show now, then one check item per group.</summary>
+    private void AppMenu_Opening(object sender, ContextMenuEventArgs e)
     {
-        if (AppOf(sender) is { } app)
+        if (AppOf(sender) is not { } app || (sender as FrameworkElement)?.ContextMenu is not { } menu)
         {
-            _controller.SetAutoHide(app.ExeName, !app.IsAutoHide);
+            return;
+        }
+
+        menu.Items.Clear();
+        menu.Items.Add(new MenuItem { Header = app.DisplayName, IsEnabled = false, FontWeight = FontWeights.SemiBold });
+        menu.Items.Add(new Separator());
+        var toggle = new MenuItem { Header = "Hide or show now" };
+        toggle.Click += (_, _) => _controller.ToggleApp(app.ExeName);
+        menu.Items.Add(toggle);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(new MenuItem { Header = "In groups", IsEnabled = false });
+        foreach (var group in _controller.Groups)
+        {
+            var member = group.Apps.Contains(app.ExeName);
+            // Header is a TextBlock so an underscore in a group name isn't read as an access key.
+            var item = new MenuItem { Header = new TextBlock { Text = group.DisplayName }, IsChecked = member };
+            item.Click += (_, _) => _controller.SetInGroup(group, app.ExeName, !member);
+            menu.Items.Add(item);
         }
     }
 
-    private void RemoveAutoHide_Click(object sender, RoutedEventArgs e)
+    private void ShowSelectedGroup()
+    {
+        GroupNameBox.Text = _controller.SelectedGroup.Name;
+        GroupHotkeyBox.Text = _controller.SelectedGroup.Hotkey ?? "";
+        GroupNameError.Visibility = Visibility.Collapsed;
+        AddError.Visibility = Visibility.Collapsed;
+    }
+
+    private void NewGroup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_controller.NewGroup())
+        {
+            GroupNameBox.Focus();
+            GroupNameBox.SelectAll();
+        }
+    }
+
+    private void DeleteGroup_Click(object sender, RoutedEventArgs e)
+    {
+        var group = _controller.SelectedGroup;
+        var answer = MessageBox.Show(this, $"Delete the group {group.Name}? Its apps stay as they are now.",
+            "ShareHider", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (answer == MessageBoxResult.OK)
+        {
+            _controller.DeleteGroup(group);
+        }
+    }
+
+    private void RenameGroup_Click(object sender, RoutedEventArgs e)
+    {
+        var error = _controller.RenameGroup(_controller.SelectedGroup, GroupNameBox.Text);
+        GroupNameError.Text = error;
+        GroupNameError.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
+        if (error is null)
+        {
+            GroupNameBox.Text = _controller.SelectedGroup.Name;
+        }
+    }
+
+    private void GroupNameBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            RenameGroup_Click(sender, e);
+        }
+    }
+
+    private void GroupHotkey_Click(object sender, RoutedEventArgs e)
+    {
+        var group = _controller.SelectedGroup;
+        var error = _controller.SetGroupHotkey(group, GroupHotkeyBox.Text);
+        if (error is null)
+        {
+            GroupHotkeyBox.Text = group.Hotkey ?? ""; // normalized, e.g. "ctrl+alt+1" -> "Ctrl+Alt+1"
+        }
+        else
+        {
+            group.HotkeyError = error;
+        }
+    }
+
+    private void GroupHotkeyBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            GroupHotkey_Click(sender, e);
+        }
+    }
+
+    private void SetActive_Click(object sender, RoutedEventArgs e) => _controller.SetActiveGroup(_controller.SelectedGroup);
+
+    private void ToggleGroup_Click(object sender, RoutedEventArgs e) => _controller.ToggleGroup(_controller.SelectedGroup);
+
+    private void RemoveFromGroup_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is string exe)
         {
-            _controller.SetAutoHide(exe, false);
+            _controller.SetInGroup(_controller.SelectedGroup, exe, false);
         }
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {
-        var added = _controller.AddAutoHide(AddBox.Text);
+        var added = _controller.AddToGroup(_controller.SelectedGroup, AddBox.Text);
         AddError.Visibility = added ? Visibility.Collapsed : Visibility.Visible;
         if (added)
         {
@@ -126,6 +223,25 @@ internal sealed partial class MainWindow : Window
     private void LogFolder_Click(object sender, RoutedEventArgs e) => Controller.OpenLogFolder();
 
     private void WindowList_Click(object sender, RoutedEventArgs e) => Controller.WriteWindowList();
+}
+
+/// <summary>Visible when the bound bool is false.</summary>
+internal sealed class FalseToVisibleConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is false ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>True when the bound count is above one: the last group can't be deleted.</summary>
+internal sealed class MoreThanOneConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is > 1;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>Collapsed when the bound value is null, visible otherwise.</summary>

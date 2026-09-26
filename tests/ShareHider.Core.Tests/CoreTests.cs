@@ -212,7 +212,10 @@ public class AppSettingsTests : IDisposable
     {
         var settings = AppSettings.Load(PathFor("none.json"), out var error);
         Assert.Null(error);
-        Assert.Empty(settings.HiddenApps);
+        var group = Assert.Single(settings.Groups);
+        Assert.Equal(HideGroup.DefaultName, group.Name);
+        Assert.Empty(group.Apps);
+        Assert.Equal(HideGroup.DefaultName, settings.ActiveGroup);
         Assert.True(settings.AutoDetect);
         Assert.Equal("Ctrl+Alt+H", settings.Hotkey);
     }
@@ -221,11 +224,25 @@ public class AppSettingsTests : IDisposable
     public void Round_trips()
     {
         var path = PathFor("settings.json");
-        new AppSettings { HiddenApps = ["Outlook.exe"], MinimizeWindows = false, Hotkey = "win+f9" }.Save(path);
+        new AppSettings
+        {
+            Groups =
+            [
+                new HideGroup { Name = "Work", Apps = ["Outlook.exe"], Hotkey = "ctrl+alt+1" },
+                new HideGroup { Name = "Music", Apps = ["spotify.exe"] },
+            ],
+            ActiveGroup = "music",
+            MinimizeWindows = false,
+            Hotkey = "win+f9",
+        }.Save(path);
 
         var loaded = AppSettings.Load(path, out var error);
         Assert.Null(error);
-        Assert.Equal(["outlook.exe"], loaded.HiddenApps);
+        Assert.Equal(["Work", "Music"], loaded.Groups.Select(g => g.Name));
+        Assert.Equal(["outlook.exe"], loaded.Groups[0].Apps);
+        Assert.Equal("Ctrl+Alt+1", loaded.Groups[0].Hotkey);
+        Assert.Null(loaded.Groups[1].Hotkey);
+        Assert.Equal("Music", loaded.ActiveGroup);
         Assert.False(loaded.MinimizeWindows);
         Assert.Equal("Win+F9", loaded.Hotkey);
         Assert.False(File.Exists(path + ".tmp"));
@@ -238,7 +255,7 @@ public class AppSettingsTests : IDisposable
         File.WriteAllText(path, "{ \"HiddenApps\": [ ");
         var settings = AppSettings.Load(path, out var error);
         Assert.NotNull(error);
-        Assert.Empty(settings.HiddenApps);
+        Assert.Empty(Assert.Single(settings.Groups).Apps);
     }
 
     [Fact]
@@ -273,7 +290,7 @@ public class AppSettingsTests : IDisposable
 
         var settings = AppSettings.Load(path, out var error);
         Assert.Null(error);
-        Assert.Equal(["good.exe"], settings.HiddenApps);
+        Assert.Equal(["good.exe"], Assert.Single(settings.Groups).Apps); // the old list became the first group
         Assert.Equal("Ctrl+Alt+H", settings.Hotkey);
         var signature = Assert.Single(settings.CustomSignatures);
         Assert.Equal(["slack.exe"], signature.ProcessNames);
@@ -287,8 +304,64 @@ public class AppSettingsTests : IDisposable
         {
             HiddenApps = Enumerable.Range(0, AppSettings.MaxHiddenApps + 10).Select(i => $"app{i}.exe").ToList(),
         }.Normalized();
-        Assert.Equal(AppSettings.MaxHiddenApps, settings.HiddenApps.Count);
+        Assert.Equal(AppSettings.MaxHiddenApps, settings.Groups[0].Apps.Count);
     }
+
+    [Fact]
+    public void Old_auto_hide_list_moves_into_a_group_and_is_not_written_back()
+    {
+        var path = PathFor("old.json");
+        File.WriteAllText(path, """{ "HiddenApps": ["outlook.exe"] }""");
+        AppSettings.Load(path, out _).Save(path);
+
+        var text = File.ReadAllText(path);
+        Assert.DoesNotContain("HiddenApps", text);
+        var loaded = AppSettings.Load(path, out _);
+        Assert.Equal(["outlook.exe"], Assert.Single(loaded.Groups).Apps);
+        Assert.Equal(HideGroup.DefaultName, loaded.ActiveGroup);
+    }
+
+    [Fact]
+    public void Invalid_groups_and_taken_hotkeys_are_dropped()
+    {
+        var settings = new AppSettings
+        {
+            Hotkey = "Ctrl+Alt+H",
+            Groups =
+            [
+                new HideGroup { Name = "  Work  ", Hotkey = "ctrl+alt+h" },  // taken by the main hotkey
+                new HideGroup { Name = "WORK" },                             // duplicate name
+                new HideGroup { Name = "" },
+                new HideGroup { Name = new string('x', HideGroup.MaxNameLength + 1) },
+                new HideGroup { Name = "Music", Hotkey = "Ctrl+Alt+M" },
+                new HideGroup { Name = "Chat", Hotkey = "ctrl+alt+m" },      // taken by Music
+            ],
+            ActiveGroup = "missing",
+        }.Normalized();
+
+        Assert.Equal(["Work", "Music", "Chat"], settings.Groups.Select(g => g.Name));
+        Assert.Equal([null, "Ctrl+Alt+M", null], settings.Groups.Select(g => g.Hotkey));
+        Assert.Equal("Work", settings.ActiveGroup); // unknown active group falls back to the first
+    }
+
+    [Fact]
+    public void Group_count_is_capped()
+    {
+        var settings = new AppSettings
+        {
+            Groups = Enumerable.Range(0, AppSettings.MaxGroups + 5).Select(i => new HideGroup { Name = $"g{i}" }).ToList(),
+        }.Normalized();
+        Assert.Equal(AppSettings.MaxGroups, settings.Groups.Count);
+    }
+
+    [Theory]
+    [InlineData("Work", true)]
+    [InlineData("  Work  ", true)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("tab\there", false)]
+    public void Group_names_are_validated(string input, bool valid) =>
+        Assert.Equal(valid, HideGroup.TryNormalizeName(input, out _));
 }
 
 public class HideSelectionTests
@@ -354,18 +427,42 @@ public class HideSelectionTests
     }
 
     [Fact]
-    public void Auto_hide_list_can_be_edited_and_overrides_cleared()
+    public void Auto_hide_list_can_be_replaced_and_overrides_cleared()
     {
         var selection = new HideSelection([]);
-        selection.SetAutoHide("slack.exe", true);
+        selection.ReplaceAutoHide(["slack.exe"]);
         Assert.True(selection.IsAutoHide("slack.exe"));
         selection.Toggle("zoom.exe", shareHiding: false);
         Assert.True(selection.HasAnyOverride);
 
         selection.ClearOverrides();
-        selection.SetAutoHide("slack.exe", false);
+        selection.ReplaceAutoHide([]);
         Assert.False(selection.HasAnyOverride);
         Assert.Empty(selection.HiddenApps(shareHiding: true));
+    }
+
+    [Fact]
+    public void Group_toggle_hides_all_then_shows_all()
+    {
+        var selection = new HideSelection([]);
+        string[] group = ["outlook.exe", "slack.exe"];
+        selection.Toggle("outlook.exe", shareHiding: false); // one already hidden by hand
+
+        selection.ToggleGroup(group, shareHiding: false);
+        Assert.True(selection.AllHidden(group, shareHiding: false));
+
+        selection.ToggleGroup(group, shareHiding: false);
+        Assert.Empty(selection.HiddenApps(shareHiding: false));
+        Assert.False(selection.HasAnyOverride);
+    }
+
+    [Fact]
+    public void Group_toggle_during_share_shows_the_active_group_and_empty_group_is_never_all_hidden()
+    {
+        var selection = new HideSelection(["outlook.exe"]);
+        selection.ToggleGroup(["outlook.exe"], shareHiding: true);
+        Assert.False(selection.IsHidden("outlook.exe", shareHiding: true));
+        Assert.False(selection.AllHidden([], shareHiding: true));
     }
 }
 

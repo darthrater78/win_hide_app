@@ -16,6 +16,8 @@ namespace ShareHider;
 internal sealed class Controller : INotifyPropertyChanged, IDisposable
 {
     private const int SharingEndsAfterPolls = 3;
+    private const int MainHotkeyId = 1;
+    private const int FirstGroupHotkeyId = 100;
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ShareHider", "settings.json");
@@ -28,6 +30,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private readonly List<nint> _eventHooks = [];
+    private readonly Dictionary<int, GroupView> _groupHotkeys = [];
 
     // Kept in a field: the native hook holds only a function pointer, so the
     // delegate must not be garbage-collected while a hook is installed.
@@ -49,15 +52,25 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
             Log.Write(loadError);
         }
 
-        _selection = new HideSelection(_settings.HiddenApps);
+        foreach (var group in _settings.Groups)
+        {
+            var view = new GroupView(group.Name) { Hotkey = group.Hotkey };
+            group.Apps.ForEach(view.AddApp);
+            Groups.Add(view);
+        }
+
+        ActiveGroup = Groups.First(g => g.Name == _settings.ActiveGroup);
+        ActiveGroup.IsActive = true;
+        SelectedGroup = ActiveGroup;
+        _selection = new HideSelection(ActiveGroup.Apps);
         _share.AutoDetect = _settings.AutoDetect;
-        _hotkey.Pressed += (_, _) => ToggleShareHiding();
+        _hotkey.Pressed += OnHotkey;
         _timer.Tick += (_, _) => Refresh(pollForShare: true);
         HotkeyError = RegisterHotkey();
-        SyncAutoHideList();
+        RegisterGroupHotkeys();
         Refresh(pollForShare: true);
         _timer.Start();
-        Log.Write($"started {AppInfo.Version}; {_settings.HiddenApps.Count} app(s) on the auto-hide list");
+        Log.Write($"started {AppInfo.Version}; {Groups.Count} group(s), {ActiveGroup.Apps.Count} app(s) in the active group");
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -65,8 +78,24 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     /// <summary>Running apps, in taskbar-mockup order.</summary>
     public ObservableCollection<AppButton> Apps { get; } = [];
 
-    /// <summary>Every app on the auto-hide list, running or not, sorted by name.</summary>
-    public ObservableCollection<string> AutoHideList { get; } = [];
+    /// <summary>Saved groups, in the user's order.</summary>
+    public ObservableCollection<GroupView> Groups { get; } = [];
+
+    /// <summary>The group hidden automatically while sharing.</summary>
+    public GroupView ActiveGroup { get; private set; }
+
+    /// <summary>The group being edited in the window. Never null: the picker briefly offers null while its list changes.</summary>
+    public GroupView SelectedGroup
+    {
+        get;
+        set
+        {
+            if (value is not null)
+            {
+                Set(ref field, value);
+            }
+        }
+    }
 
     public string StatusTitle { get; private set => Set(ref field, value); } = "";
 
@@ -136,30 +165,139 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         Refresh(pollForShare: false);
     }
 
-    public void SetAutoHide(string exe, bool autoHide)
+    public void SetInGroup(GroupView group, string exe, bool member)
     {
-        _selection.SetAutoHide(exe, autoHide);
-        SyncAutoHideList();
-        SaveAndRefresh();
+        if (member)
+        {
+            group.AddApp(exe);
+        }
+        else
+        {
+            group.Apps.Remove(exe);
+        }
+
+        GroupsChanged();
     }
 
-    /// <summary>Adds a typed exe name to the auto-hide list. Returns false when it isn't a valid exe name.</summary>
-    public bool AddAutoHide(string input)
+    /// <summary>Adds a typed exe name to a group. Returns false when it isn't a valid exe name or the group is full.</summary>
+    public bool AddToGroup(GroupView group, string input)
     {
-        if (!ExeName.TryNormalize(input, out var exe) || _selection.AutoHide.Count >= AppSettings.MaxHiddenApps)
+        if (!ExeName.TryNormalize(input, out var exe) || group.Apps.Count >= AppSettings.MaxHiddenApps)
         {
             return false;
         }
 
-        SetAutoHide(exe, true);
+        SetInGroup(group, exe, true);
         return true;
     }
 
-    /// <summary>The hotkey: apply or lift the auto-hide list now, whatever detection says.</summary>
+    /// <summary>Adds an empty group with an unused name and selects it. False when the group limit is reached.</summary>
+    public bool NewGroup()
+    {
+        if (Groups.Count >= AppSettings.MaxGroups)
+        {
+            return false;
+        }
+
+        var number = Groups.Count + 1;
+        while (FindGroup($"Group {number}") is not null)
+        {
+            number++;
+        }
+
+        var group = new GroupView($"Group {number}");
+        Groups.Add(group);
+        SelectedGroup = group;
+        GroupsChanged();
+        return true;
+    }
+
+    /// <summary>Renames a group. Returns an error message, or null.</summary>
+    public string? RenameGroup(GroupView group, string input)
+    {
+        if (!HideGroup.TryNormalizeName(input, out var name))
+        {
+            return $"Use 1 to {HideGroup.MaxNameLength} characters.";
+        }
+
+        if (FindGroup(name) is { } other && other != group)
+        {
+            return $"There is already a group called {name}.";
+        }
+
+        group.Name = name;
+        GroupsChanged();
+        return null;
+    }
+
+    /// <summary>Deletes a group. The last group can't be deleted; deleting the active one makes the first group active.</summary>
+    public void DeleteGroup(GroupView group)
+    {
+        if (Groups.Count <= 1)
+        {
+            return;
+        }
+
+        var remaining = Groups.First(g => g != group);
+        if (group == ActiveGroup)
+        {
+            ActiveGroup = remaining;
+            remaining.IsActive = true;
+            Log.Write($"active group is now {remaining.Name}");
+        }
+
+        // Move the selection off the group first, so the picker never shows a deleted group.
+        SelectedGroup = ActiveGroup;
+        Groups.Remove(group);
+        GroupsChanged();
+    }
+
+    public void SetActiveGroup(GroupView group)
+    {
+        ActiveGroup.IsActive = false;
+        ActiveGroup = group;
+        group.IsActive = true;
+        Log.Write($"active group is now {group.Name}");
+        GroupsChanged();
+    }
+
+    /// <summary>Sets or clears (empty text) a group's hotkey. Returns an error message, or null.</summary>
+    public string? SetGroupHotkey(GroupView group, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            group.Hotkey = null;
+        }
+        else if (!Hotkey.TryParse(text, out var hotkey))
+        {
+            return "Use Ctrl, Alt or Win plus a letter, digit or F1–F24, e.g. Ctrl+Alt+1.";
+        }
+        else if (HotkeyOwner(hotkey) is { } owner && owner != group.Name)
+        {
+            return $"{hotkey} is already the hotkey for {owner}.";
+        }
+        else
+        {
+            group.Hotkey = hotkey.ToString();
+        }
+
+        GroupsChanged();
+        return group.HotkeyError;
+    }
+
+    /// <summary>A group's manual trigger (window, tray menu, its hotkey): hide all its apps, or show them if all are hidden.</summary>
+    public void ToggleGroup(GroupView group)
+    {
+        _selection.ToggleGroup(group.Apps, _share.ShouldHide);
+        Log.Write($"group {group.Name}: {(_selection.AllHidden(group.Apps, _share.ShouldHide) ? "hidden" : "shown")} on demand");
+        Refresh(pollForShare: false);
+    }
+
+    /// <summary>The main hotkey: hide or show the active group now, whatever detection says.</summary>
     public void ToggleShareHiding()
     {
         _share.Toggle();
-        Log.Write($"hotkey: auto-hide list {(_share.ShouldHide ? "applied" : "lifted")}");
+        Log.Write($"hotkey: active group {(_share.ShouldHide ? "hidden" : "shown")}");
         Refresh(pollForShare: false);
     }
 
@@ -177,6 +315,11 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         if (!Hotkey.TryParse(text, out var hotkey))
         {
             return "Use Ctrl, Alt or Win plus a letter, digit or F1–F24, e.g. Ctrl+Alt+H.";
+        }
+
+        if (Groups.FirstOrDefault(g => g.Hotkey == hotkey.ToString()) is { } group)
+        {
+            return $"{hotkey} is already the hotkey for {group.Name}.";
         }
 
         _settings.Hotkey = hotkey.ToString();
@@ -268,6 +411,11 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         var hidden = _selection.HiddenApps(shareHiding);
         ApplyToTaskbar(windows, hidden);
         UpdateApps(windows, hidden);
+        foreach (var group in Groups)
+        {
+            group.IsHidden = _selection.AllHidden(group.Apps, shareHiding);
+        }
+
         UpdateStatus(hidden.Count);
     }
 
@@ -336,9 +484,9 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
 
         StatusDetail = (_share.Override, _share.SharingDetected) switch
         {
-            (true, _) => "The hotkey applied your auto-hide list.",
-            (false, true) => "Sharing detected, but the hotkey lifted your auto-hide list.",
-            (null, true) => $"Sharing detected ({_shareName ?? "share window"}). Your auto-hide list is applied.",
+            (true, _) => $"The hotkey hid the {ActiveGroup.Name} group.",
+            (false, true) => $"Sharing detected, but the hotkey showed the {ActiveGroup.Name} group.",
+            (null, true) => $"Sharing detected ({_shareName ?? "share window"}). The {ActiveGroup.Name} group is hidden.",
             _ => "Click an app below to hide or show it now.",
         };
 
@@ -357,12 +505,69 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     private static string? FirstMatch(IEnumerable<ShareSignature> signatures, List<WindowInfo> windows) =>
         signatures.FirstOrDefault(signature => windows.Any(signature.Matches))?.Name;
 
-    private void SyncAutoHideList()
+    private GroupView? FindGroup(string name) =>
+        Groups.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Who already uses a hotkey: "the main hotkey", a group's name, or null.</summary>
+    private string? HotkeyOwner(Hotkey hotkey)
     {
-        AutoHideList.Clear();
-        foreach (var exe in _selection.AutoHide.Order(StringComparer.Ordinal))
+        var text = hotkey.ToString();
+        if (text == _settings.Hotkey)
         {
-            AutoHideList.Add(exe);
+            return "hiding the active group";
+        }
+
+        return Groups.FirstOrDefault(g => g.Hotkey == text)?.Name;
+    }
+
+    /// <summary>After any group edit: re-sync the auto-hide list and hotkeys, save, and refresh.</summary>
+    private void GroupsChanged()
+    {
+        _selection.ReplaceAutoHide(ActiveGroup.Apps);
+        RegisterGroupHotkeys();
+        SaveAndRefresh();
+    }
+
+    private void OnHotkey(object? sender, int id)
+    {
+        if (id == MainHotkeyId)
+        {
+            ToggleShareHiding();
+        }
+        else if (_groupHotkeys.TryGetValue(id, out var group))
+        {
+            ToggleGroup(group);
+        }
+    }
+
+    /// <summary>Re-registers every group's hotkey, recording which ones another app already owns.</summary>
+    private void RegisterGroupHotkeys()
+    {
+        foreach (var id in _groupHotkeys.Keys)
+        {
+            _hotkey.Unregister(id);
+        }
+
+        _groupHotkeys.Clear();
+        for (var i = 0; i < Groups.Count; i++)
+        {
+            var group = Groups[i];
+            group.HotkeyError = null;
+            if (!Hotkey.TryParse(group.Hotkey, out var hotkey))
+            {
+                continue;
+            }
+
+            var id = FirstGroupHotkeyId + i;
+            if (_hotkey.Register(id, hotkey))
+            {
+                _groupHotkeys[id] = group;
+            }
+            else
+            {
+                Log.Write($"hotkey {hotkey} for group {group.Name} is already in use by another app");
+                group.HotkeyError = $"{hotkey} is already used by another app. Pick a different hotkey.";
+            }
         }
     }
 
@@ -376,7 +581,10 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
 
     private void Save()
     {
-        _settings.HiddenApps = [.. _selection.AutoHide.Order(StringComparer.Ordinal)];
+        _settings.Groups = Groups
+            .Select(g => new HideGroup { Name = g.Name, Apps = [.. g.Apps], Hotkey = g.Hotkey })
+            .ToList();
+        _settings.ActiveGroup = ActiveGroup.Name;
         try
         {
             _settings.Save(SettingsPath);
@@ -391,7 +599,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     private string? RegisterHotkey()
     {
         var hotkey = Hotkey.TryParse(_settings.Hotkey, out var parsed) ? parsed : Hotkey.Default;
-        if (_hotkey.Register(hotkey))
+        if (_hotkey.Register(MainHotkeyId, hotkey))
         {
             return null;
         }

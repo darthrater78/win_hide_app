@@ -11,6 +11,8 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <local:NullToCollapsedConverter x:Key="NullToCollapsed" />
+        <local:FalseToVisibleConverter x:Key="FalseToVisible" />
+        <local:MoreThanOneConverter x:Key="MoreThanOne" />
         <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
         <Style x:Key="Card" TargetType="Border">
@@ -65,17 +67,12 @@
 
         <DataTemplate x:Key="AppButtonTemplate" DataType="{x:Type local:AppButton}">
             <Button Style="{StaticResource TaskbarButton}" Tag="{Binding}" Click="AppButton_Click"
+                    ContextMenuOpening="AppMenu_Opening"
                     ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding DisplayName}"
                     AutomationProperties.HelpText="{Binding ToolTip}">
+                <!-- Filled in when it opens, with one entry per group (MainWindow.AppMenu_Opening). -->
                 <Button.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="{Binding DisplayName}" IsEnabled="False" FontWeight="SemiBold" />
-                        <Separator />
-                        <MenuItem Header="Hide or show now" Click="ToggleMenu_Click" />
-                        <!-- Not IsCheckable: a click would overwrite the one-way binding with a local value. -->
-                        <MenuItem Header="Hide automatically while sharing"
-                                  IsChecked="{Binding IsAutoHide, Mode=OneWay}" Click="AutoHideMenu_Click" />
-                    </ContextMenu>
+                    <ContextMenu />
                 </Button.ContextMenu>
                 <Grid>
                     <Grid x:Name="IconHost" Width="28" Height="28" Margin="0,0,0,6"
@@ -154,7 +151,7 @@
                     <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="16,0,0,0">
                         <Button Click="ShareHiding_Click" HorizontalAlignment="Stretch" Padding="14,6">
                             <TextBlock>
-                                <Run Text="Apply / lift auto-hide list" />
+                                <Run Text="Hide / show active group" />
                                 <Run Text="{Binding HotkeyText, Mode=OneWay, StringFormat=' ({0})'}"
                                      Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                             </TextBlock>
@@ -188,7 +185,7 @@
                 <StackPanel>
                     <TextBlock Text="Your taskbar" Style="{StaticResource SectionTitle}" />
                     <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12"
-                               Text="Every app with a taskbar button right now. Click an app to hide or show its button immediately. Right-click it to have it hidden automatically whenever you share your screen." />
+                               Text="Every app with a taskbar button right now. Click an app to hide or show its button immediately. Right-click it to add it to a group." />
 
                     <Border CornerRadius="8" Padding="8,6" MinHeight="68" BorderThickness="1"
                             Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
@@ -228,19 +225,68 @@
                                 <TextBlock Text="&#xE72D;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="White"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Text="Hidden automatically while sharing" Style="{StaticResource Caption}" Margin="6,0,0,0" />
+                            <TextBlock Text="In the active group, hidden while sharing" Style="{StaticResource Caption}" Margin="6,0,0,0" />
                         </StackPanel>
                     </WrapPanel>
                 </StackPanel>
             </Border>
 
-            <!-- Auto-hide list -->
+            <!-- Groups -->
             <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock Text="Hide automatically while sharing" Style="{StaticResource SectionTitle}" />
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12"
-                               Text="These apps are hidden whenever a screen share is detected, even if they aren't running yet." />
-                    <ItemsControl ItemsSource="{Binding AutoHideList}" Focusable="False">
+                    <TextBlock Text="Groups" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
+                               Text="Save sets of apps to hide together, even apps that aren't running yet. The active group is hidden automatically while you share. Any group can be hidden by hand, from the tray menu, or with its own hotkey." />
+
+                    <StackPanel Orientation="Horizontal">
+                        <ComboBox x:Name="GroupPicker" Width="260" ItemsSource="{Binding Groups}"
+                                  SelectedItem="{Binding SelectedGroup}" DisplayMemberPath="DisplayName"
+                                  AutomationProperties.Name="Group" />
+                        <Button Content="New group" Click="NewGroup_Click" Margin="8,0,0,0" Padding="16,4" />
+                        <Button Content="Delete" Click="DeleteGroup_Click" Margin="8,0,0,0" Padding="16,4"
+                                IsEnabled="{Binding Groups.Count, Converter={StaticResource MoreThanOne}}" />
+                    </StackPanel>
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="70" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Name" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1" x:Name="GroupNameBox" Width="240" KeyDown="GroupNameBox_KeyDown"
+                                 AutomationProperties.Name="Group name" />
+                        <Button Grid.Column="2" Content="Rename" Click="RenameGroup_Click" Margin="8,0,0,0" Padding="16,4"
+                                HorizontalAlignment="Left" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="GroupNameError"
+                                   Foreground="{DynamicResource SystemFillColorCriticalBrush}" Margin="0,4,0,0" Visibility="Collapsed" />
+
+                        <TextBlock Grid.Row="2" Text="Hotkey" VerticalAlignment="Center" Margin="0,8,0,0" />
+                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="GroupHotkeyBox" Width="240" Margin="0,8,0,0"
+                                 KeyDown="GroupHotkeyBox_KeyDown" AutomationProperties.Name="Group hotkey"
+                                 ToolTip="Optional, e.g. Ctrl+Alt+1. Leave empty for none." />
+                        <Button Grid.Row="2" Grid.Column="2" Content="Apply" Click="GroupHotkey_Click" Margin="8,8,0,0" Padding="16,4"
+                                HorizontalAlignment="Left" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="GroupHotkeyError" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SystemFillColorCriticalBrush}" Margin="0,4,0,0"
+                                   Text="{Binding SelectedGroup.HotkeyError}" />
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,12">
+                        <TextBlock Text="This group is hidden automatically while you share." VerticalAlignment="Center"
+                                   Visibility="{Binding SelectedGroup.IsActive, Converter={StaticResource BoolToVisibility}}" />
+                        <Button Content="Hide this group while sharing" Click="SetActive_Click" Padding="16,4"
+                                Visibility="{Binding SelectedGroup.IsActive, Converter={StaticResource FalseToVisible}}"
+                                ToolTip="Makes this the active group, in place of the current one" />
+                    </StackPanel>
+
+                    <ItemsControl ItemsSource="{Binding SelectedGroup.Apps}" Focusable="False">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel />
@@ -253,8 +299,8 @@
                                         BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding}" VerticalAlignment="Center" />
-                                        <Button Tag="{Binding}" Click="RemoveAutoHide_Click" Margin="6,0,0,0" Padding="6,2"
-                                                ToolTip="Remove from the list" Background="Transparent" BorderThickness="0"
+                                        <Button Tag="{Binding}" Click="RemoveFromGroup_Click" Margin="6,0,0,0" Padding="6,2"
+                                                ToolTip="Remove from the group" Background="Transparent" BorderThickness="0"
                                                 AutomationProperties.Name="Remove">
                                             <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10" />
                                         </Button>
@@ -270,6 +316,9 @@
                     </StackPanel>
                     <TextBlock x:Name="AddError" Foreground="{DynamicResource SystemFillColorCriticalBrush}" Margin="0,6,0,0"
                                Visibility="Collapsed" Text="Enter an exe file name such as outlook.exe (no folder path)." />
+
+                    <Button Content="{Binding SelectedGroup.ToggleText}" Click="ToggleGroup_Click" Margin="0,12,0,0"
+                            Padding="16,6" HorizontalAlignment="Left" />
                 </StackPanel>
             </Border>
 

@@ -4,8 +4,8 @@ namespace ShareHider.Core;
 /// Decides which apps (by exe name) have their taskbar buttons hidden right now.
 /// </summary>
 /// <remarks>
-/// Each app has a default: hidden while a share is active if it is on the auto-hide
-/// list, otherwise shown. Clicking an app in the taskbar mockup sets a per-app override
+/// Each app has a default: hidden while a share is active if it is in the active group
+/// (the auto-hide list), otherwise shown. Clicking an app in the taskbar mockup sets a per-app override
 /// that flips it from whatever it currently is. An override that ends up equal to the
 /// default is dropped, so the app goes back to following the default. When a share
 /// ends, "show" overrides are dropped: letting Outlook show during one share shouldn't
@@ -62,29 +62,27 @@ public sealed class HideSelection
     }
 
     /// <summary>Flips an app from its current state (the mockup's click).</summary>
-    public void Toggle(string app, bool shareHiding)
+    public void Toggle(string app, bool shareHiding) => SetHidden(app, !IsHidden(app, shareHiding), shareHiding);
+
+    /// <summary>True when the apps are non-empty and every one of them is hidden.</summary>
+    public bool AllHidden(IReadOnlyCollection<string> apps, bool shareHiding) =>
+        apps.Count > 0 && apps.All(app => IsHidden(app, shareHiding));
+
+    /// <summary>A group's manual trigger: shows every app when all are hidden, otherwise hides them all.</summary>
+    public void ToggleGroup(IReadOnlyCollection<string> apps, bool shareHiding)
     {
-        var hide = !IsHidden(app, shareHiding);
-        if (hide == Default(app, shareHiding))
+        var hide = !AllHidden(apps, shareHiding);
+        foreach (var app in apps)
         {
-            _overrides.Remove(app);
-        }
-        else
-        {
-            _overrides[app] = hide;
+            SetHidden(app, hide, shareHiding);
         }
     }
 
-    public void SetAutoHide(string app, bool autoHide)
+    /// <summary>Replaces the auto-hide list, e.g. when another group becomes the active one.</summary>
+    public void ReplaceAutoHide(IEnumerable<string> apps)
     {
-        if (autoHide)
-        {
-            _autoHide.Add(app);
-        }
-        else
-        {
-            _autoHide.Remove(app);
-        }
+        _autoHide.Clear();
+        _autoHide.UnionWith(apps);
     }
 
     /// <summary>Call when a share ends: one-share "show" overrides expire.</summary>
@@ -98,6 +96,18 @@ public sealed class HideSelection
 
     /// <summary>Drops every per-app override, so all apps follow their defaults again.</summary>
     public void ClearOverrides() => _overrides.Clear();
+
+    private void SetHidden(string app, bool hide, bool shareHiding)
+    {
+        if (hide == Default(app, shareHiding))
+        {
+            _overrides.Remove(app);
+        }
+        else
+        {
+            _overrides[app] = hide;
+        }
+    }
 
     private bool Default(string app, bool shareHiding) => shareHiding && _autoHide.Contains(app);
 }

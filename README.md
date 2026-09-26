@@ -5,8 +5,9 @@ when you share your screen: everyone in the meeting can see every app you have o
 
 ShareHider shows you a copy of your taskbar. Click any running app in it and that
 app's button disappears from the real taskbar; click it again and the button comes
-back. You can also put apps on an **auto-hide list**: ShareHider notices when you
-start sharing your screen, hides those apps, and puts them back when the share ends.
+back. You can also save **groups** of apps. ShareHider notices when you start sharing
+your screen, hides the apps in the active group, and puts them back when the share
+ends. Any group can also be hidden by hand, from the tray menu, or with its own hotkey.
 It can minimize hidden apps too, and restore them afterwards.
 
 [![CI](https://github.com/darthrater78/win_hide_app/actions/workflows/ci.yml/badge.svg)](https://github.com/darthrater78/win_hide_app/actions/workflows/ci.yml)
@@ -33,9 +34,14 @@ It can minimize hidden apps too, and restore them afterwards.
 - **Hiding on demand.** Clicking an app in the taskbar mockup hides or shows it
   straight away, whether or not you're sharing. A hide you choose this way lasts
   until you click the app again or quit ShareHider. A show you choose during a share
-  (to let one auto-hide app stay visible) lasts until that share ends.
-- **The hotkey.** Press **Ctrl+Alt+H** (you can change it) to apply or lift the whole
-  auto-hide list right now, whatever detection says. That choice holds until
+  (to let one app from the active group stay visible) lasts until that share ends.
+- **Groups.** A group is a saved set of apps, including apps that aren't running yet.
+  One group is the active one: it is hidden automatically while you share. **Hide this
+  group now**, the tray's **Groups** menu, or the group's own hotkey hides every app in
+  a group at once, or shows them all again if they're all hidden. These work like
+  clicks in the mockup, so they last until you show the group again.
+- **The hotkey.** Press **Ctrl+Alt+H** (you can change it) to hide or show the active
+  group right now, whatever detection says. That choice holds until
   detection sees a share start or end. **Resume automatic hiding** drops the hotkey
   choice and every on-demand click at once.
 - **Meeting reminder.** Detection can miss a share, for example after a meeting app
@@ -78,16 +84,18 @@ The exe isn't code-signed yet, so SmartScreen may warn about it the first time y
 
 The main window has four parts:
 
-- **Status**: what's hidden and why, plus the **Apply / lift auto-hide list**
+- **Status**: what's hidden and why, plus the **Hide / show active group**
   button (same as the hotkey) and **Resume automatic hiding**.
 - **Your taskbar**: every app with a taskbar button right now, grouped per app the
   way Windows groups them, with its real icon.
   - **Click** an app to hide or show its button immediately. A hidden app is faded
     and gets a red badge.
-  - **Right-click** it to add or remove it from the auto-hide list. Apps on the list
-    get a blue badge.
-- **Hide automatically while sharing**: the auto-hide list, including apps that
-  aren't running. Add one by exe name (for example `outlook.exe`) or remove one with ×.
+  - **Right-click** it to add it to a group or remove it from one. Apps in the active
+    group get a blue badge.
+- **Groups**: pick a group to edit, or make a **New group**. Rename it, give it an
+  optional hotkey (for example `Ctrl+Alt+1`), make it the group hidden while sharing,
+  and add apps by exe name (for example `outlook.exe`) or remove them with ×. The last
+  group can't be deleted.
 - **Settings**: automatic share detection, minimizing hidden apps, starting with
   Windows, and the hotkey.
 
@@ -95,7 +103,7 @@ The footer links to this repository, the release notes, the log folder and
 **Save window list** (see [Adding detection for another app](#adding-detection-for-another-app)).
 
 Closing the window keeps ShareHider running in the tray. Click the tray icon to open
-the window again, or right-click it for quick controls and **Exit**. Starting the exe a
+the window again, or right-click it for quick controls, the **Groups** menu and **Exit**. Starting the exe a
 second time also brings the window back. The tray icon turns amber while any app is hidden.
 
 ShareHider never shows a pop-up notification when sharing starts or stops, because
@@ -107,7 +115,11 @@ Settings live in `%APPDATA%\ShareHider\settings.json`:
 
 ```json
 {
-  "HiddenApps": ["outlook.exe", "spotify.exe"],
+  "Groups": [
+    { "Name": "While sharing", "Apps": ["outlook.exe", "spotify.exe"], "Hotkey": null },
+    { "Name": "Chat", "Apps": ["slack.exe", "teams.exe"], "Hotkey": "Ctrl+Alt+1" }
+  ],
+  "ActiveGroup": "While sharing",
   "AutoDetect": true,
   "MinimizeWindows": true,
   "Hotkey": "Ctrl+Alt+H",
@@ -116,8 +128,10 @@ Settings live in `%APPDATA%\ShareHider\settings.json`:
 }
 ```
 
-`HiddenApps` is the auto-hide list. On-demand hides from the taskbar mockup aren't
-saved, so they end when ShareHider exits.
+`ActiveGroup` names the group hidden while sharing. A group hotkey that is already
+taken (by the main hotkey or another group) is dropped. An older settings file with a
+`HiddenApps` list becomes one group called **While sharing**. On-demand hides from the
+mockup and the group buttons aren't saved, so they end when ShareHider exits.
 
 If the file is malformed or larger than 256 KB, ShareHider ignores it, uses the
 defaults, and writes a note to the log. Invalid entries are dropped when the file loads.
