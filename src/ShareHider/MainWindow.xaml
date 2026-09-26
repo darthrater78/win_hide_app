@@ -263,7 +263,7 @@
                               IsChecked="{Binding AutoDetect}" Margin="0,0,0,8" />
                     <CheckBox Content="Also minimize apps when hiding them, and restore them afterwards"
                               IsChecked="{Binding MinimizeWindows}" Margin="0,0,0,8" />
-                    <CheckBox Content="Start ShareHider with Windows (in the tray)"
+                    <CheckBox Content="Start ShareHider with Windows"
                               IsChecked="{Binding StartWithWindows}" Margin="0,0,0,12" />
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Hotkey" VerticalAlignment="Center" Width="60" />

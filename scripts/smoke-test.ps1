@@ -59,7 +59,9 @@ function Get-TaskbarNotepadCount {
     $condition = [System.Windows.Automation.PropertyCondition]::new($uia::ClassNameProperty, 'Shell_TrayWnd')
     $taskbar = $uia::RootElement.FindFirst($tree::Children, $condition)
     if (-not $taskbar) { return 0 }
-    (Find-Buttons $taskbar '*Notepad*').Count
+    # @() because PowerShell unwraps a one-item array returned from a function.
+    # @() because PowerShell unwraps a one-item array returned from a function.
+    @(Find-Buttons $taskbar '*Notepad*').Count
 }
 
 # Something for the taskbar mockup to show.
