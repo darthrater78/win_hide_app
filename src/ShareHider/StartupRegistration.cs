@@ -8,11 +8,8 @@ internal static class StartupRegistration
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "ShareHider";
 
-    /// <summary>Started from the Run key: stay in the tray instead of opening the window.</summary>
-    public const string TrayArgument = "--tray";
-
     // Quoted, so a path with spaces can't be split into a different program plus arguments.
-    private static string Command => $"\"{Environment.ProcessPath}\" {TrayArgument}";
+    private static string Command => $"\"{Environment.ProcessPath}\"";
 
     /// <summary>True only when the Run entry points at this exe, not an older copy elsewhere.</summary>
     public static bool IsEnabled

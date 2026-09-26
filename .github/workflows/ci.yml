@@ -39,20 +39,20 @@ jobs:
         shell: bash
         run: bash scripts/build.sh publish
 
-      # Startup crashes (e.g. a XAML error) only show up on Windows; this catches them
-      # and captures a screenshot of the window for review.
-      - name: Smoke test (launch and screenshot)
+      # Startup crashes (e.g. a XAML error) only show up on Windows; this catches them,
+      # checks that hiding and restoring a taskbar button works, and captures screenshots.
+      - name: Smoke test (launch, hide and restore Notepad, screenshots)
         shell: pwsh
         run: |
           $exe = Get-ChildItem dist -Filter 'ShareHider-*-win-x64.exe' | Select-Object -First 1
-          ./scripts/smoke-test.ps1 -Exe $exe.FullName -Screenshot dist/smoke-test.png
+          ./scripts/smoke-test.ps1 -Exe $exe.FullName -ScreenshotDir dist
 
-      - name: Upload smoke-test screenshot
+      - name: Upload smoke-test screenshots
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: smoke-test-${{ github.sha }}
-          path: dist/smoke-test.png
+          path: dist/smoke-*.png
           if-no-files-found: ignore
           retention-days: 14
 

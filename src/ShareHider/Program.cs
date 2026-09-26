@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 
 namespace ShareHider;
@@ -5,7 +6,7 @@ namespace ShareHider;
 internal static class Program
 {
     [STAThread]
-    private static void Main(string[] args)
+    private static void Main()
     {
         // One instance per user session: two copies would fight over the same taskbar buttons.
         // A second launch just asks the running one to show its window.
@@ -13,6 +14,19 @@ internal static class Program
         using var mutex = new Mutex(initiallyOwned: true, @"Local\ShareHider.SingleInstance", out var createdNew);
         if (!createdNew)
         {
+            // This launch came from the user, so it may bring a window to the front; the running
+            // copy may not. Pass the right on, or its window opens behind others as a taskbar button.
+            using var self = Process.GetCurrentProcess();
+            foreach (var other in Process.GetProcessesByName(self.ProcessName))
+            {
+                if (other.Id != Environment.ProcessId && other.SessionId == self.SessionId)
+                {
+                    Native.AllowSetForegroundWindow((uint)other.Id);
+                }
+
+                other.Dispose();
+            }
+
             showSignal.Set();
             return;
         }
@@ -50,10 +64,8 @@ internal static class Program
             Exit();
         };
 
-        if (!args.Contains(StartupRegistration.TrayArgument, StringComparer.OrdinalIgnoreCase))
-        {
-            window.Show();
-        }
+        // Every start opens the window, including at sign-in; closing it leaves ShareHider in the tray.
+        window.ShowAndActivate();
 
         app.Run();
         showWait.Unregister(null);

@@ -64,7 +64,8 @@
 
         <DataTemplate x:Key="AppButtonTemplate" DataType="{x:Type local:AppButton}">
             <Button Style="{StaticResource TaskbarButton}" Tag="{Binding}" Click="AppButton_Click"
-                    ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding DisplayName}">
+                    ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding DisplayName}"
+                    AutomationProperties.HelpText="{Binding ToolTip}">
                 <Button.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="{Binding DisplayName}" IsEnabled="False" FontWeight="SemiBold" />

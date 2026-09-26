@@ -63,6 +63,10 @@ internal static class Native
     public static extern bool IsIconic(nint hwnd);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool AllowSetForegroundWindow(uint processId);
+
+    [DllImport("user32.dll")]
     public static extern nint GetWindow(nint hwnd, uint cmd);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]

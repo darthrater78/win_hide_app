@@ -30,7 +30,13 @@ internal sealed partial class MainWindow : Window
             WindowState = WindowState.Normal;
         }
 
-        Activate();
+        // Windows refuses focus to a process the user isn't interacting with (for example a
+        // start the user clicked away from); still bring the window to the top so it is seen.
+        if (!Activate())
+        {
+            Topmost = true;
+            Topmost = false;
+        }
     }
 
     /// <summary>Lets the next Close actually close, for app shutdown.</summary>
