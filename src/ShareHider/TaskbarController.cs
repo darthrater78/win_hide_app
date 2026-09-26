@@ -156,15 +156,7 @@ internal sealed class TaskbarController : IDisposable
             current.Where(windowsById.ContainsKey).ToList());
         foreach (var hwnd in plan.SelectMany(id => windowsById[id]))
         {
-            try
-            {
-                _taskbar.DeleteTab(hwnd);
-                _taskbar.AddTab(hwnd);
-            }
-            catch (COMException ex)
-            {
-                Log.Write($"moving the button of 0x{hwnd:X} failed: 0x{ex.HResult:X8}");
-            }
+            MoveToEnd(hwnd);
         }
 
         if (plan.Count > 0)
@@ -176,6 +168,31 @@ internal sealed class TaskbarController : IDisposable
         if (unmovable.Count > 0)
         {
             Log.Write($"taskbar buttons with no window to move: {string.Join(", ", unmovable)}");
+        }
+    }
+
+    /// <summary>Takes a window's button off the taskbar and adds it back, which puts it at the end.</summary>
+    private void MoveToEnd(nint hwnd)
+    {
+        Native.GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid == Environment.ProcessId)
+        {
+            // The taskbar ignores DeleteTab/AddTab on our own window (CI showed it staying put),
+            // so hide and re-show it instead, keeping focus if it had it.
+            var focused = Native.GetForegroundWindow() == hwnd;
+            Native.ShowWindow(hwnd, Native.SW_HIDE);
+            Native.ShowWindow(hwnd, focused ? Native.SW_SHOW : Native.SW_SHOWNA);
+            return;
+        }
+
+        try
+        {
+            _taskbar.DeleteTab(hwnd);
+            _taskbar.AddTab(hwnd);
+        }
+        catch (COMException ex)
+        {
+            Log.Write($"moving the button of 0x{hwnd:X} failed: 0x{ex.HResult:X8}");
         }
     }
 

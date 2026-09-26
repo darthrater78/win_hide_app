@@ -13,7 +13,10 @@ internal static class Native
     public const int DWMWA_CLOAKED = 14;
     public const uint GW_OWNER = 4;
 
+    public const int SW_HIDE = 0;
     public const int SW_SHOWNOACTIVATE = 4;
+    public const int SW_SHOW = 5;
+    public const int SW_SHOWNA = 8;
     public const int SW_MINIMIZE = 6;
 
     public const int WM_HOTKEY = 0x0312;
@@ -65,6 +68,13 @@ internal static class Native
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool AllowSetForegroundWindow(uint processId);
+
+    [DllImport("user32.dll")]
+    public static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindow(nint hwnd, int cmdShow);
 
     [DllImport("user32.dll")]
     public static extern nint GetWindow(nint hwnd, uint cmd);
