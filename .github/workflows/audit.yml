@@ -1,0 +1,42 @@
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays; catches advisories published after merge
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  audit:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET (version from global.json)
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      # NuGetAudit + TreatWarningsAsErrors (Directory.Build.props) fail the restore on any
+      # advisory; the list shows which package it was. A failed run emails the repo owner.
+      - name: Restore with NuGet audit, then list vulnerable packages
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          dotnet restore ShareHider.slnx --locked-mode || status=$?
+          dotnet list ShareHider.slnx package --vulnerable --include-transitive || true
+          exit "$status"

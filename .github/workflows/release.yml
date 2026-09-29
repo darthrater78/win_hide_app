@@ -83,12 +83,12 @@ jobs:
             sleep 20
           done
 
-  release:
+  build:
     needs: gate
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -151,6 +151,47 @@ jobs:
             echo "::error::CHANGELOG.md has no '## [$section]' section. Refusing to publish without release notes."
             exit 1
           fi
+
+      - name: Upload release files for the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-files
+          path: |
+            dist/ShareHider-*-win-x64.exe
+            dist/ShareHider-*-win-x64.exe.sha256
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 1
+
+  # Holds the write token and the signing identity but runs no project code or NuGet
+  # restore: it checks, attests and uploads only what the build job produced.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write      # create the release
+      id-token: write      # sign the provenance attestation
+      attestations: write  # store it
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-files
+
+      - name: Verify exe checksum
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c "ShareHider-${TAG#v}-win-x64.exe.sha256"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/ShareHider-*-win-x64.exe
 
       # Unsigned for now (security finding M1): SmartScreen will warn on first run.
       - name: Create GitHub release with exe and checksum

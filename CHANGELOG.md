@@ -27,6 +27,8 @@ All notable changes to this project are documented here. The format follows
   by exe name.
 - A diagnostics option that saves the visible-window list to `window-list.txt`.
 - Tray menu links to the GitHub project page and the latest release notes.
+- Each release exe comes with a signed build provenance attestation, checkable with
+  `gh attestation verify`.
 - A reminder in the window and the tray tooltip while a Zoom meeting is open and no
   share is detected, with a **Hide now** button, since detection can miss a share.
   `CustomMeetingSignatures` in `settings.json` adds other meeting apps.
