@@ -24,6 +24,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ShareHider", "settings.json");
 
     private readonly HideState _share = new(SharingEndsAfterPolls);
+    private readonly TrayIcons _tray = new(Path.Combine(Log.Directory, "tray-icons.json"));
     private readonly HideSelection _selection;
     private readonly AppOrder _order = new();
     private readonly TaskbarController _taskbar = new();
@@ -432,6 +433,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         _taskbar.Hide(
             windows.Where(w => hidden.Contains(w.ProcessName) && WindowEnumerator.HasTaskbarButton(w)),
             _settings.MinimizeWindows);
+        _tray.Apply(hidden);
 
         if (hidden.Count > 0 && _eventHooks.Count == 0)
         {
@@ -706,6 +708,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
         _timer.Stop();
         RemoveEventHooks();
         _taskbar.Dispose();
+        _tray.RestoreAll();
         _hotkey.Dispose();
         Log.Write("exited");
     }

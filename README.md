@@ -31,6 +31,10 @@ It can minimize hidden apps too, and restore them afterwards.
   taskbar API (`ITaskbarList::DeleteTab`), and put back with `AddTab`. While hiding
   is on, ShareHider re-hides immediately when one of those apps opens a new window,
   and again every second in case Explorer adds a button back.
+- **Tray icons.** A hidden app's notification-area icon moves into the overflow (the
+  **^** flyout), using the same per-icon switch as **Settings → Personalization →
+  Taskbar → Other system tray icons**, and moves back when the app is shown. An icon
+  you had already put in the overflow is left alone.
 - **Keeping each button's place.** Windows always puts a re-added button at the end
   of the taskbar, and has no way to place one. So before hiding, ShareHider reads the
   taskbar's order (through UI Automation, the same interface screen readers use).
@@ -80,10 +84,14 @@ It can minimize hidden apps too, and restore them afterwards.
 - **Apps running as administrator** can't be minimized from a normal (non-admin)
   ShareHider. Their taskbar buttons may still hide.
 - **Only running apps can be hidden.** Windows 11 has no supported way to hide a
-  pinned icon for an app that isn't running, or another app's tray icon.
+  pinned icon for an app that isn't running.
+- **A hidden app's tray icon is still in the ^ flyout.** Anyone who opens the flyout
+  during your share can see it. Windows has no way to remove another app's tray icon
+  without breaking it.
 - **If ShareHider is killed** (for example from Task Manager) while apps are hidden,
   their buttons stay hidden until you restore that app's window or restart Explorer.
-  A normal exit, logoff, shutdown or unexpected error always restores them.
+  A normal exit, logoff, shutdown or unexpected error always restores them. Their tray
+  icons stay in the overflow until ShareHider next starts, which puts them back.
 
 ## Install
 
@@ -196,13 +204,17 @@ for the whole meeting, which turns on the meeting reminder for that app.
     overwritten each time. It holds window titles, which can include document
     names or email subjects, and the names of your taskbar buttons. Delete it
     whenever you like.
+  - `tray-icons.json`: while apps are hidden, which tray icons ShareHider moved into
+    the overflow and each one's original setting, so a restart after a crash can put
+    them back. Deleted once they're all back.
   - **Start with Windows** writes one value, `ShareHider`, under
     `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Turning the setting off
     deletes it.
 - **What it reads from other apps:** window titles, class names, and each app's exe
   path. It reads the path only to show that app's icon and product name.
 - **What it changes in other apps:** it removes and restores their taskbar buttons,
-  and minimizes and restores their windows. It doesn't inject code into them or
+  minimizes and restores their windows, and switches their tray icons between shown
+  and the overflow (`IsPromoted` under `HKCU\Control Panel\NotifyIconSettings`). It doesn't inject code into them or
   change their window styles.
 
 ## Build from source

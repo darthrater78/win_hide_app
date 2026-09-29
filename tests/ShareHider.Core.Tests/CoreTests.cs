@@ -486,6 +486,64 @@ public class AppOrderTests
     }
 }
 
+public class TrayIconMemoryTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "sharehider-tray-" + Guid.NewGuid().ToString("N"));
+
+    private string FilePath => Path.Combine(_dir, "tray-icons.json");
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_dir))
+        {
+            Directory.Delete(_dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\me\AppData\Local\slack\app-4.41.105\slack.exe", "slack.exe", true)]
+    [InlineData(@"{6D809377-6AF0-444B-8957-A3773F02200E}\Zoom\bin\Zoom.exe", "zoom.exe", true)]
+    [InlineData(@"C:\Tools\notslack.exe", "slack.exe", false)]
+    [InlineData(null, "slack.exe", false)]
+    [InlineData("", "slack.exe", false)]
+    public void Exe_matches_by_file_name(string? path, string exe, bool expected) =>
+        Assert.Equal(expected, TrayIconMemory.ExeMatches(path, exe));
+
+    [Fact]
+    public void Round_trips_and_deletes_the_file_when_empty()
+    {
+        var memory = TrayIconMemory.Load(FilePath);
+        memory.Moved["1234567890"] = 1;
+        memory.Moved["42"] = null;
+        memory.Save();
+
+        var loaded = TrayIconMemory.Load(FilePath);
+        Assert.Equal(1, loaded.Moved["1234567890"]);
+        Assert.Null(loaded.Moved["42"]);
+
+        loaded.Moved.Clear();
+        loaded.Save();
+        Assert.False(File.Exists(FilePath));
+    }
+
+    [Fact]
+    public void Load_drops_invalid_ids_and_values()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(FilePath, """{"123": 1, "..\\evil": 1, "456": 7, "": 0}""");
+        var loaded = TrayIconMemory.Load(FilePath);
+        Assert.Equal(["123"], loaded.Moved.Keys);
+    }
+
+    [Fact]
+    public void Load_of_a_broken_file_is_empty()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(FilePath, "not json");
+        Assert.Empty(TrayIconMemory.Load(FilePath).Moved);
+    }
+}
+
 public class PinnedNoticeTests
 {
     [Fact]

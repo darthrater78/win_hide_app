@@ -26,6 +26,8 @@ All notable changes to this project are documented here. The format follows
 - Settings for automatic detection, minimizing, the hotkey, and adding apps to a group
   by exe name.
 - A diagnostics option that saves the visible-window list to `window-list.txt`.
+- Hidden apps' notification-area icons move into the overflow (the ^ flyout) and back, with
+  the original setting kept on disk so a crash can't leave them there.
 - A pin badge on pinned apps in the mockup, and a warning when a pinned app is hidden or in
   a group: its pinned icon stays on the taskbar, so unpin apps that mustn't be seen at all.
 - Tray menu links to the GitHub project page and the latest release notes.
