@@ -486,6 +486,24 @@ public class AppOrderTests
     }
 }
 
+public class PinnedNoticeTests
+{
+    [Fact]
+    public void No_pinned_apps_means_no_notice() => Assert.Null(PinnedNotice.Text([]));
+
+    [Fact]
+    public void One_app_is_named_in_the_singular()
+    {
+        var text = PinnedNotice.Text(["Brave"]);
+        Assert.StartsWith("Brave is pinned to your taskbar.", text);
+        Assert.Contains("Unpin from taskbar", text);
+    }
+
+    [Fact]
+    public void Several_apps_are_listed_once_each() =>
+        Assert.StartsWith("Brave, Slack and Zoom are pinned", PinnedNotice.Text(["Brave", "Slack", "brave", "Zoom"]));
+}
+
 public class TaskbarOrderTests
 {
     private static readonly HashSet<string> None = [];

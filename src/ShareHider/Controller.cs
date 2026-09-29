@@ -18,6 +18,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     private const int SharingEndsAfterPolls = 3;
     private const int MainHotkeyId = 1;
     private const int FirstGroupHotkeyId = 100;
+    private static readonly TimeSpan PinnedReadInterval = TimeSpan.FromSeconds(5);
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ShareHider", "settings.json");
@@ -40,6 +41,9 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     private bool _wasShareHiding;
     private string? _shareName;
     private string? _meetingName;
+    private HashSet<string> _pinnedExes = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _pinnedReadFor = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime _pinnedReadAt;
     private bool _refreshPending;
     private bool _disposed;
 
@@ -117,6 +121,9 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
     public string? MeetingName { get; private set => Set(ref field, value); }
 
     public string? MeetingWarning { get; private set => Set(ref field, value); }
+
+    /// <summary>Says which chosen apps are pinned (their icon stays when hidden), or null.</summary>
+    public string? PinnedWarning { get; private set => Set(ref field, value); }
 
     public bool AutoDetect
     {
@@ -444,6 +451,7 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
             .ToDictionary(g => g.Key, g => g.ToList());
         var order = _order.Update(groups.Keys);
         var existing = Apps.ToDictionary(a => a.ExeName);
+        RefreshPinned(groups);
 
         for (var i = 0; i < order.Count; i++)
         {
@@ -460,13 +468,41 @@ internal sealed class Controller : INotifyPropertyChanged, IDisposable
 
             var group = groups[exe];
             var (icon, name) = AppIcons.For(group[0].ExePath, exe);
-            button.Update(name, icon, group.Count, hidden.Contains(exe), _selection.IsAutoHide(exe));
+            button.Update(name, icon, group.Count, hidden.Contains(exe), _selection.IsAutoHide(exe), _pinnedExes.Contains(exe));
         }
 
         while (Apps.Count > order.Count)
         {
             Apps.RemoveAt(Apps.Count - 1);
         }
+
+        // Chosen = hidden now, or in any group.
+        PinnedWarning = PinnedNotice.Text(Apps
+            .Where(a => a.IsPinned && (a.IsHidden || Groups.Any(g => g.Apps.Contains(a.ExeName))))
+            .Select(a => a.DisplayName)
+            .ToList());
+    }
+
+    /// <summary>
+    /// Works out which running apps are pinned. That reads the taskbar through UI Automation,
+    /// so it runs when the running apps change, and otherwise every few seconds to catch a pin
+    /// made or removed by hand, not on every poll.
+    /// </summary>
+    private void RefreshPinned(Dictionary<string, List<WindowInfo>> groups)
+    {
+        if (groups.Keys.ToHashSet().SetEquals(_pinnedReadFor) && DateTime.UtcNow - _pinnedReadAt < PinnedReadInterval)
+        {
+            return;
+        }
+
+        _pinnedReadFor = new HashSet<string>(groups.Keys, StringComparer.OrdinalIgnoreCase);
+        _pinnedReadAt = DateTime.UtcNow;
+        var pinnedIds = TaskbarButtons.AppButtons().Where(b => b.Pinned).Select(b => b.AppId).ToList();
+        var windows = groups.Values.SelectMany(w => w).ToList();
+        var exeByHandle = windows.ToDictionary(w => w.Handle, w => w.ProcessName);
+        _pinnedExes = AppIds.MatchButtons(windows, pinnedIds).Keys
+            .Select(hwnd => exeByHandle[hwnd])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private void UpdateStatus(int hiddenApps)

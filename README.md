@@ -72,7 +72,8 @@ It can minimize hidden apps too, and restore them afterwards.
   way every pinned app's does. Telling pinned buttons apart relies on the English
   taskbar; with another display language, restoring may move those buttons too.
 - **A pinned app's icon stays on the taskbar while it's hidden.** Only its running
-  windows go, so it looks like the app isn't open.
+  windows go, so it looks like the app isn't open. The window warns you when a pinned
+  app is chosen for hiding (English taskbar only, like pin detection above).
 - **Detection depends on how each meeting app names its windows**, and an update to
   the app can change that. If your meeting app isn't detected, see
   [Adding detection for another app](#adding-detection-for-another-app), or use the hotkey.
@@ -112,6 +113,9 @@ The main window has four parts:
     and gets a red badge.
   - **Right-click** it to add it to a group or remove it from one. Apps in the active
     group get a blue badge.
+  - Apps **pinned** to your taskbar get a small yellow pin badge. When a pinned app is
+    hidden or in a group, a warning above the mockup explains that its icon will stay:
+    hiding only hides that it's running. Unpin an app you don't want seen at all.
 - **Groups**: pick a group to edit, or make a **New group**. Rename it, give it an
   optional hotkey (for example `Ctrl+Alt+1`), make it the group hidden while sharing,
   and add apps by exe name (for example `outlook.exe`) or remove them with ×. The last

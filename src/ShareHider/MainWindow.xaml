@@ -103,6 +103,14 @@
                         <TextBlock Text="&#xE72D;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
+
+                    <!-- Pinned on the real taskbar: hiding leaves its icon there. -->
+                    <Border x:Name="PinBadge" Width="14" Height="14" CornerRadius="7" Margin="0,0,1,1"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom" Visibility="Collapsed"
+                            Background="{DynamicResource SystemFillColorCautionBrush}">
+                        <TextBlock Text="&#xE718;" FontFamily="{StaticResource IconFont}" FontSize="8" Foreground="Black"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
                 </Grid>
             </Button>
             <DataTemplate.Triggers>
@@ -116,6 +124,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsAutoHide}" Value="True">
                     <Setter TargetName="AutoBadge" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                    <Setter TargetName="PinBadge" Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -177,6 +188,20 @@
                     <TextBlock Grid.Column="1" Text="{Binding MeetingWarning}" TextWrapping="Wrap" VerticalAlignment="Center" />
                     <Button Grid.Column="2" Content="Hide now" Click="ShareHiding_Click" Margin="16,0,0,0" Padding="14,6"
                             VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <!-- Pinned apps chosen for hiding: their icon stays, so say how to hide it for good. Never a pop-up. -->
+            <Border Style="{StaticResource Card}" Background="{DynamicResource SystemFillColorCautionBackgroundBrush}"
+                    Visibility="{Binding PinnedWarning, Converter={StaticResource NullToCollapsed}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="&#xE718;" FontFamily="{StaticResource IconFont}" FontSize="16" Margin="0,0,12,0"
+                               VerticalAlignment="Center" Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                    <TextBlock Grid.Column="1" Text="{Binding PinnedWarning}" TextWrapping="Wrap" VerticalAlignment="Center" />
                 </Grid>
             </Border>
 

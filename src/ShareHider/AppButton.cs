@@ -26,6 +26,9 @@ internal sealed class AppButton(string exeName) : INotifyPropertyChanged
     /// <summary>The app is on the list hidden automatically while sharing.</summary>
     public bool IsAutoHide { get; private set => Set(ref field, value); }
 
+    /// <summary>The app is pinned to the real taskbar, so hiding it leaves its pinned icon.</summary>
+    public bool IsPinned { get; private set => Set(ref field, value); }
+
     public string ToolTip
     {
         get
@@ -33,17 +36,19 @@ internal sealed class AppButton(string exeName) : INotifyPropertyChanged
             var windows = WindowCount == 1 ? "1 window" : $"{WindowCount} windows";
             var state = IsHidden ? "Hidden from the taskbar" : "Shown on the taskbar";
             var auto = IsAutoHide ? "\nHidden automatically while sharing" : "";
-            return $"{DisplayName} ({windows})\n{state}{auto}\n\nClick to {(IsHidden ? "show" : "hide")} now · Right-click for options";
+            var pinned = IsPinned ? "\nPinned: hiding leaves its icon on the taskbar. Unpin it to hide it completely." : "";
+            return $"{DisplayName} ({windows})\n{state}{auto}{pinned}\n\nClick to {(IsHidden ? "show" : "hide")} now · Right-click for options";
         }
     }
 
-    public void Update(string displayName, ImageSource? icon, int windowCount, bool hidden, bool autoHide)
+    public void Update(string displayName, ImageSource? icon, int windowCount, bool hidden, bool autoHide, bool pinned)
     {
         DisplayName = displayName;
         Icon = icon;
         WindowCount = windowCount;
         IsHidden = hidden;
         IsAutoHide = autoHide;
+        IsPinned = pinned;
     }
 
     private void Set<T>(ref T field, T value, [CallerMemberName] string name = "")
