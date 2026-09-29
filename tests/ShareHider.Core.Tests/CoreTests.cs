@@ -549,6 +549,46 @@ public class TaskbarOrderTests
         Assert.Equal(want, Apply(have, TaskbarOrder.Plan(want, have)));
     }
 
+    [Fact]
+    public void Plan_with_pins_leaves_an_app_that_sat_among_pins_at_the_end()
+    {
+        // The user's taskbar (2026-09-29): slack and notepad++ were dragged in among the pins.
+        // Restoring slack used to cycle notepad++ past the pins too.
+        var pinned = new HashSet<string> { "explorer", "brave", "thunderbird", "notepad", "claude", "sharehider-pin" };
+        var desired = new[] { "explorer", "brave", "slack", "thunderbird", "notepad", "notepad++", "claude", "sharehider-pin", "sharehider" };
+        var current = new[] { "explorer", "brave", "thunderbird", "notepad", "notepad++", "claude", "sharehider-pin", "sharehider", "slack" };
+        var movable = new HashSet<string> { "explorer", "brave", "notepad", "notepad++", "sharehider", "slack" };
+
+        var (moves, displaced) = TaskbarOrder.Plan(desired, current, pinned, movable);
+
+        Assert.Empty(moves);
+        Assert.Equal(["slack"], displaced);
+    }
+
+    [Fact]
+    public void Plan_with_pins_still_orders_the_apps_after_the_last_pin()
+    {
+        var pinned = new HashSet<string> { "explorer", "brave" };
+        var current = new[] { "explorer", "brave", "edge", "notepad", "slack", "outlook" };
+        var movable = new HashSet<string> { "explorer", "brave", "edge", "notepad", "slack", "outlook" };
+
+        var (moves, displaced) = TaskbarOrder.Plan(["explorer", "brave", "edge", "outlook", "notepad", "slack"], current, pinned, movable);
+
+        Assert.Equal(["notepad", "slack"], moves);
+        Assert.Empty(displaced);
+        Assert.Equal(["explorer", "brave", "edge", "outlook", "notepad", "slack"], Apply(current, moves));
+    }
+
+    [Fact]
+    public void Plan_with_no_pins_matches_the_plain_plan()
+    {
+        var desired = new[] { "a", "b", "c", "d", "e" };
+        var current = new[] { "a", "c", "e", "b", "d" };
+        var (moves, displaced) = TaskbarOrder.Plan(desired, current, None, current.ToHashSet());
+        Assert.Equal(TaskbarOrder.Plan(desired, current), moves);
+        Assert.Empty(displaced);
+    }
+
     /// <summary>What the taskbar does: each cycled app goes to the end.</summary>
     private static List<string> Apply(IEnumerable<string> current, IEnumerable<string> plan)
     {

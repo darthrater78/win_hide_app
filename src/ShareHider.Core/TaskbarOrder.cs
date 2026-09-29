@@ -69,4 +69,64 @@ public static class TaskbarOrder
 
         return target.Skip(keep).ToList();
     }
+
+    /// <summary>
+    /// Like <see cref="Plan(IReadOnlyList{string}, IReadOnlyList{string})"/>, for a taskbar with pinned apps.
+    /// A pinned app's button never moves (its windows go back to the pin), and a re-added
+    /// button always lands after the last pin. So only the running, unpinned buttons after the
+    /// last pin can be put in order. An unpinned app the user had dragged in among the pins
+    /// can't be put back there: it is left at the end (<c>Displaced</c>), and nothing else
+    /// is cycled on its account, since cycling would carry those buttons past the pins too.
+    /// </summary>
+    /// <param name="movable">Apps that have a window to cycle; others can't move either.</param>
+    public static (List<string> Moves, List<string> Displaced) Plan(
+        IReadOnlyList<string> desired,
+        IReadOnlyList<string> current,
+        IReadOnlySet<string> pinned,
+        IReadOnlySet<string> movable)
+    {
+        var lastPin = LastIndexOf(current, pinned);
+        var lastPinDesired = LastIndexOf(desired, pinned);
+        var rank = new Dictionary<string, int>();
+        for (var i = 0; i < desired.Count; i++)
+        {
+            rank.TryAdd(desired[i], i);
+        }
+
+        var tail = new List<string>();
+        var displaced = new List<string>();
+        for (var i = lastPin + 1; i < current.Count; i++)
+        {
+            var id = current[i];
+            if (pinned.Contains(id) || !movable.Contains(id))
+            {
+                continue;
+            }
+
+            if (rank.TryGetValue(id, out var r) && r < lastPinDesired)
+            {
+                displaced.Add(id);
+            }
+            else
+            {
+                tail.Add(id);
+            }
+        }
+
+        var inTail = tail.ToHashSet();
+        return (Plan(desired.Where(inTail.Contains).ToList(), tail), displaced);
+    }
+
+    private static int LastIndexOf(IReadOnlyList<string> ids, IReadOnlySet<string> set)
+    {
+        for (var i = ids.Count - 1; i >= 0; i--)
+        {
+            if (set.Contains(ids[i]))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
 }

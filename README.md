@@ -65,6 +65,14 @@ It can minimize hidden apps too, and restore them afterwards.
 - **A restored button goes on the end** when ShareHider can't read the taskbar's order
   (older taskbars), and when it restores everything at sign-out or after an unexpected
   error, where Explorer may not answer. Pinned apps always keep their pinned place.
+- **A running app you dragged in among your pinned apps comes back at the end.** A
+  re-added button always lands after the last pin, and nothing can move it back in
+  among them. Nothing else moves on its account. Pin the app if you want it to keep
+  its place, but then its pinned icon stays on the taskbar while it's hidden, the
+  way every pinned app's does. Telling pinned buttons apart relies on the English
+  taskbar; with another display language, restoring may move those buttons too.
+- **A pinned app's icon stays on the taskbar while it's hidden.** Only its running
+  windows go, so it looks like the app isn't open.
 - **Detection depends on how each meeting app names its windows**, and an update to
   the app can change that. If your meeting app isn't detected, see
   [Adding detection for another app](#adding-detection-for-another-app), or use the hotkey.

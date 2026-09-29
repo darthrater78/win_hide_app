@@ -117,7 +117,7 @@ internal sealed class TaskbarController : IDisposable
         _pendingMoves.Clear();
         _moveTimer.Stop();
 
-        var observed = inPlace && _order.Count > 0 ? TaskbarButtons.AppIds() : [];
+        var buttons = inPlace && _order.Count > 0 ? TaskbarButtons.AppButtons() : [];
 
         // Re-add in remembered order, so apps restored together are already right among themselves.
         var ordered = restore.OrderBy(e => e.Value.AppId is { } id && _order.IndexOf(id) is >= 0 and var i ? i : int.MaxValue).ToList();
@@ -131,10 +131,10 @@ internal sealed class TaskbarController : IDisposable
         }
 
         Log.Write($"restored {restore.Count} window(s)");
-        if (observed.Count > 0)
+        if (buttons.Count > 0)
         {
             var restoredIds = ordered.Select(e => e.Value.AppId).OfType<string>().Distinct().ToList();
-            MoveBackIntoPlace(observed, restoredIds);
+            MoveBackIntoPlace(buttons, restoredIds);
         }
     }
 
@@ -161,11 +161,14 @@ internal sealed class TaskbarController : IDisposable
 
     /// <summary>
     /// Restored buttons were added at the end. Cycles the buttons that belong after them,
-    /// in order, so everything is back where it was. Buttons with no window we can reach
-    /// (pinned apps that aren't running, apps whose id we can't read) stay put.
+    /// in order, so everything is back where it was. Pinned apps and buttons with no window
+    /// we can reach (apps whose id we can't read) stay put, and so does everything among
+    /// the pins: cycling would carry it past them (<see cref="TaskbarOrder"/>).
     /// </summary>
-    private void MoveBackIntoPlace(List<string> observed, List<string> restoredIds)
+    private void MoveBackIntoPlace(List<TaskbarButtons.AppButton> buttons, List<string> restoredIds)
     {
+        var observed = buttons.Select(b => b.AppId).ToList();
+        var pinned = buttons.Where(b => b.Pinned).Select(b => b.AppId).ToHashSet();
         _order = TaskbarOrder.Merge(_order, observed, HiddenAppIds().Concat(restoredIds).ToHashSet());
         var current = observed.Concat(restoredIds).Distinct().ToList();
         // Our own window too: its button may sit after a restored one.
@@ -176,9 +179,7 @@ internal sealed class TaskbarController : IDisposable
             .GroupBy(pair => pair.Value, pair => pair.Key)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        var plan = TaskbarOrder.Plan(
-            _order.Where(windowsById.ContainsKey).ToList(),
-            current.Where(windowsById.ContainsKey).ToList());
+        var (plan, displaced) = TaskbarOrder.Plan(_order, current, pinned, windowsById.Keys.ToHashSet());
         foreach (var hwnd in plan.SelectMany(id => windowsById[id]))
         {
             _pendingMoves.Enqueue(hwnd);
@@ -194,7 +195,12 @@ internal sealed class TaskbarController : IDisposable
             Log.Write($"moved {plan.Count} app(s) back into place on the taskbar");
         }
 
-        var unmovable = current.Where(id => !windowsById.ContainsKey(id)).ToList();
+        if (displaced.Count > 0)
+        {
+            Log.Write($"left at the end, since Windows can't put a button back among pinned apps: {string.Join(", ", displaced)}");
+        }
+
+        var unmovable = current.Where(id => !windowsById.ContainsKey(id) && !pinned.Contains(id)).ToList();
         if (unmovable.Count > 0)
         {
             Log.Write($"taskbar buttons with no window to move: {string.Join(", ", unmovable)}");
