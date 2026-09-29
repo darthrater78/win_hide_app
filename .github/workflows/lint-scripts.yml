@@ -1,0 +1,42 @@
+name: Lint scripts
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/lint-scripts.yml'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/lint-scripts.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-scripts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # ubuntu-latest ships shellcheck and the PSScriptAnalyzer module, so nothing is downloaded.
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      # Write-Host is the point of a CI script's console output, and Find-Buttons returns
+      # several buttons, so those two style rules are excluded; everything else fails the job.
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning, Error `
+            -ExcludeRule PSAvoidUsingWriteHost, PSUseSingularNouns
+          $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Output
+          if ($results) { exit 1 }
